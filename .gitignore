@@ -1,0 +1,16 @@
+# nested repos parked during monorepo flatten (rename back to .git to restore)
+.git.bak/
+
+# local electron cache dir created by a quoting bug (127 MB junk)
+${env.ELECTRON_CACHE}/
+
+# build artifacts too large / regenerable for git
+AionUi/out/
+AionUi/resources/bundled-aioncore/
+
+# large demo media (available in upstream iOfficeAI/AionUi)
+AionUi/resources/*.gif
+
+# OS junk
+Thumbs.db
+.DS_Store
