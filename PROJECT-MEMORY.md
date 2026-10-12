@@ -21,6 +21,7 @@
 
 ## 代码改动清单(AionUi)
 
+- **三模式首页(2026-10-12)**:首页输入框上方助手选择条改为**三个固定模式胶囊**——办公(OpenCode)/设计(Zeus 内置 aionrs)/开发(Claude Code),见 `guid/components/AssistantSelectionArea.tsx`(按 generated 助手的 acp_backend 匹配,其余条目一律不显示);标签 i18n 在 13 个 locale 的 `guid.json` `workspaceTab` 下;测试 `tests/unit/renderer/hooks/guidAssistantSelectionArea.dom.test.tsx`。同时**内置助手清到只剩 butler**:`AionCore/.../builtin-assistants/assistants.json` 只留 `aionui-assistant`(设置页 TalkToButler 按钮依赖),20 个知识工作助手 + 59 个 rule 文件 + 19 个头像已删(内容可从 git initial commit db8e4e8 取回);`builtin.rs` 的 6 处嵌入式资产断言已改指 butler。有价值的规则/技能已导出到**全局 opencode** `~/.config/opencode/skills/`:officecli-docx/xlsx/pptx、pdf、mermaid(原样复制)+ planning-with-files、ui-ux-pro-max(手工转成自包含 SKILL.md,后者只保留专业规则+检查清单,设计数据库本来就没随包)。
 - `packages/desktop/src/process/isolatedRuntime/`(新增,6 文件):paths / ensureRuntime(二进制下载)/ agentOverrides(PUT /api/agents/{id}/overrides 注入 CLAUDE_CONFIG_DIR、OPENCODE_CONFIG_DIR、XDG_*)/ plugins(18 插件安装+技能同步)/ openDesignMcp(ELECTRON_RUN_AS_NODE 跑 Open Design 的 daemon-cli.mjs mcp)/ index;挂在 index.ts 的 markBackendReady
 - 品牌:Titlebar/Layout(侧栏 logo 换 img 'Zeus')、登录页 assets/logos/brand/app.png、About、91 个 locale "AionUi"→"Zeus"、34 个 locale "Aion CLI"→"Zeus"、index.html、tray、manifest.webmanifest + pwa 图标
 - 主题:main.tsx primaryColor #1F2328;default-color-scheme.css --primary/--bg-1/--bg-hover/--message-*-bg 薄荷中性系

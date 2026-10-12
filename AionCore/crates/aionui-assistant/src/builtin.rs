@@ -295,17 +295,17 @@ mod tests {
     fn load_embedded_has_expected_builtins() {
         let reg = BuiltinAssistantRegistry::load_embedded();
         assert!(!reg.is_empty(), "embedded registry should contain the shipped presets");
-        // Sanity-check a couple of known ids from the committed manifest.
-        assert!(reg.has("word-creator"));
-        assert!(reg.has("cowork"));
+        // Sanity-check the known id from the committed manifest (the butler is
+        // the only shipped builtin — knowledge-work presets were removed).
+        assert!(reg.has("aionui-assistant"));
     }
 
     #[test]
     fn load_embedded_rule_bytes_available_for_shipped_preset() {
         let reg = BuiltinAssistantRegistry::load_embedded();
         let bytes = reg
-            .rule_bytes("word-creator", "en-US")
-            .expect("shipped word-creator en-US rule should resolve from the embedded bundle");
+            .rule_bytes("aionui-assistant", "en-US")
+            .expect("shipped aionui-assistant en-US rule should resolve from the embedded bundle");
         assert!(!bytes.is_empty());
         let text = std::str::from_utf8(&bytes).expect("rule file should be valid utf-8");
         assert!(text.len() > 100, "rule file should have real content");
@@ -316,7 +316,7 @@ mod tests {
         let reg = BuiltinAssistantRegistry::load_embedded();
         // The manifest declares rule_file as "rules/{id}.{locale}.md"; a
         // made-up locale can't resolve.
-        assert!(reg.rule_bytes("word-creator", "xx-YY").is_none());
+        assert!(reg.rule_bytes("aionui-assistant", "xx-YY").is_none());
     }
 
     // -----------------------------------------------------------------------
@@ -440,7 +440,7 @@ mod tests {
         }
         let reg = BuiltinAssistantRegistry::load();
         assert!(reg.has("env-only"));
-        assert!(!reg.has("word-creator"));
+        assert!(!reg.has("aionui-assistant"));
         match prev {
             Some(v) => unsafe { std::env::set_var(key, v) },
             None => unsafe { std::env::remove_var(key) },
@@ -453,17 +453,26 @@ mod tests {
 
     #[test]
     fn avatar_asset_is_none_for_inline_emoji_avatar() {
-        let reg = BuiltinAssistantRegistry::load_embedded();
-        // word-form-creator still ships with an inline emoji avatar.
-        assert!(reg.avatar_asset("word-form-creator").is_none());
+        let tmp = TempDir::new().unwrap();
+        write_manifest(
+            tmp.path(),
+            r#"{"assistants":[{
+                "id": "emoji-avatar",
+                "name": "E",
+                "agent_ref": "gemini",
+                "avatar": "📋"
+            }]}"#,
+        );
+        let reg = BuiltinAssistantRegistry::load_from_dir(tmp.path().to_path_buf());
+        assert!(reg.avatar_asset("emoji-avatar").is_none());
     }
 
     #[test]
     fn embedded_avatar_asset_returns_bytes_and_extension_for_shipped_file_avatar() {
         let reg = BuiltinAssistantRegistry::load_embedded();
         let asset = reg
-            .avatar_asset("word-creator")
-            .expect("shipped word-creator avatar should resolve from the embedded bundle");
+            .avatar_asset("aionui-assistant")
+            .expect("shipped aionui-assistant avatar should resolve from the embedded bundle");
         assert!(!asset.bytes.is_empty());
         assert_eq!(asset.extension.as_deref(), Some("jpg"));
     }

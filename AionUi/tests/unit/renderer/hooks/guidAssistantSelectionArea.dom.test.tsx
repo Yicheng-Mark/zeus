@@ -8,10 +8,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { Assistant } from '@/common/types/agent/assistantTypes';
-import AssistantSelectionArea, {
-  hasTruncatedAssistantLabels,
-  resolveAssistantVisibleLimit,
-} from '@/renderer/pages/guid/components/AssistantSelectionArea';
+import AssistantSelectionArea from '@/renderer/pages/guid/components/AssistantSelectionArea';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -34,168 +31,72 @@ vi.mock('@arco-design/web-react', async () => {
 });
 
 describe('AssistantSelectionArea', () => {
-  it('maps available width to 4, 3, 2, then 1 visible assistant slots', () => {
-    expect(resolveAssistantVisibleLimit(800)).toBe(4);
-    expect(resolveAssistantVisibleLimit(680)).toBe(3);
-    expect(resolveAssistantVisibleLimit(520)).toBe(2);
-    expect(resolveAssistantVisibleLimit(390)).toBe(1);
-  });
-
-  it('detects labels that are visually truncated', () => {
-    const root = document.createElement('div');
-    const label = document.createElement('span');
-    label.setAttribute('data-assistant-label', 'true');
-    Object.defineProperty(label, 'clientWidth', { configurable: true, value: 80 });
-    Object.defineProperty(label, 'scrollWidth', { configurable: true, value: 120 });
-    root.appendChild(label);
-
-    expect(hasTruncatedAssistantLabels(root)).toBe(true);
-
-    Object.defineProperty(label, 'scrollWidth', { configurable: true, value: 80 });
-
-    expect(hasTruncatedAssistantLabels(root)).toBe(false);
-  });
-
-  it('keeps the assistant picker visible after an assistant is selected', () => {
+  it('renders exactly the three fixed workspace pills mapped to their engines', () => {
     render(
       <AssistantSelectionArea
-        selectedAssistantId='bare-aionrs'
-        assistants={assistants()}
+        selectedAssistantId='bare-zeus'
+        assistants={engines()}
         localeKey='en-US'
         onSelectAssistant={vi.fn()}
       />
     );
 
-    expect(screen.getByTestId('preset-pill-bare-aionrs')).toBeInTheDocument();
-    expect(screen.queryByTestId('btn-add-preset')).not.toBeInTheDocument();
-    expect(screen.queryByText('Select an assistant to start a task')).not.toBeInTheDocument();
-    expect(screen.queryByText('Try these example prompts:')).not.toBeInTheDocument();
-    expect(screen.queryByText('Summarize today')).not.toBeInTheDocument();
+    expect(screen.getByTestId('workspace-pill-office')).toHaveTextContent('办公');
+    expect(screen.getByTestId('workspace-pill-design')).toHaveTextContent('设计');
+    expect(screen.getByTestId('workspace-pill-dev')).toHaveTextContent('开发');
+    // The engine rows carry the real agent ids/backends for debugging.
+    expect(screen.getByTestId('workspace-pill-office').getAttribute('data-assistant-backend')).toBe('opencode');
+    expect(screen.getByTestId('workspace-pill-design').getAttribute('data-assistant-backend')).toBe('aionrs');
+    expect(screen.getByTestId('workspace-pill-dev').getAttribute('data-assistant-backend')).toBe('claude');
   });
 
-  it('moves overflow assistants into a more dropdown', async () => {
+  it('marks only the selected engine pill as selected', () => {
     render(
       <AssistantSelectionArea
-        selectedAssistantId='bare-aionrs'
-        assistants={manyAssistants()}
+        selectedAssistantId='bare-claude'
+        assistants={engines()}
         localeKey='en-US'
         onSelectAssistant={vi.fn()}
       />
     );
 
-    // Selection lists group by source: CLI (generated) → user → official
-    // (builtin). So the top row is [bare-aionrs, user-research, user-review,
-    // user-translate] and the official Writer + trailing user-finance overflow.
-    expect(screen.getByTestId('preset-pill-bare-aionrs')).toBeInTheDocument();
-    expect(screen.getByTestId('preset-pill-user-research')).toBeInTheDocument();
-    expect(screen.getByTestId('preset-pill-user-review')).toBeInTheDocument();
-    expect(screen.getByTestId('preset-pill-user-translate')).toBeInTheDocument();
-    expect(screen.queryByTestId('preset-pill-builtin-writer')).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByTestId('assistant-more-btn'));
-
-    expect(await screen.findByTestId('assistant-overflow-user-finance')).toBeInTheDocument();
-    expect(screen.getByTestId('assistant-overflow-builtin-writer')).toBeInTheDocument();
-    expect(screen.queryByTestId('assistant-overflow-bare-aionrs')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('assistant-overflow-user-research')).not.toBeInTheDocument();
+    expect(screen.getByTestId('workspace-pill-dev').getAttribute('data-assistant-selected')).toBe('true');
+    expect(screen.getByTestId('workspace-pill-office').getAttribute('data-assistant-selected')).toBe('false');
+    expect(screen.getByTestId('workspace-pill-design').getAttribute('data-assistant-selected')).toBe('false');
   });
 
-  it('lays out the overflow dropdown as a grid matching the visible pill count', async () => {
+  it('ignores every other catalog entry — other CLI agents and preset assistants', () => {
     render(
       <AssistantSelectionArea
-        selectedAssistantId='bare-aionrs'
-        assistants={manyAssistants()}
+        selectedAssistantId='bare-zeus'
+        assistants={[...engines(), ...noise()]}
         localeKey='en-US'
         onSelectAssistant={vi.fn()}
       />
     );
 
-    fireEvent.click(screen.getByTestId('assistant-more-btn'));
-
-    const panel = await screen.findByTestId('assistant-overflow-panel');
-    // jsdom reports a wide window, so the width limit resolves to 4 columns.
-    expect(panel.getAttribute('data-overflow-columns')).toBe('4');
-    const grid = panel.querySelector<HTMLElement>('.grid');
-    expect(grid?.style.gridTemplateColumns).toBe('repeat(4, minmax(0, 1fr))');
+    const pills = screen.getAllByTestId(/^workspace-pill-/);
+    expect(pills).toHaveLength(3);
+    expect(screen.queryByTestId('workspace-pill-gemini')).not.toBeInTheDocument();
+    expect(screen.queryByText('Codex CLI')).not.toBeInTheDocument();
+    expect(screen.queryByText('Writer')).not.toBeInTheDocument();
   });
 
-  it('narrows the overflow grid together with the visible pill count', async () => {
+  it('drops a pill whose engine row is missing from the catalog', () => {
+    const withoutOpencode = engines().filter((assistant) => assistant.id !== 'bare-opencode');
+
     render(
       <AssistantSelectionArea
-        selectedAssistantId='bare-aionrs'
-        assistants={manyAssistants()}
-        localeKey='en-US'
-        maxVisibleAssistants={2}
-        onSelectAssistant={vi.fn()}
-      />
-    );
-
-    fireEvent.click(screen.getByTestId('assistant-more-btn'));
-
-    const panel = await screen.findByTestId('assistant-overflow-panel');
-    expect(panel.getAttribute('data-overflow-columns')).toBe('2');
-    const grid = panel.querySelector<HTMLElement>('.grid');
-    expect(grid?.style.gridTemplateColumns).toBe('repeat(2, minmax(0, 1fr))');
-  });
-
-  it('hides the overflow search until the list exceeds five rows', async () => {
-    render(
-      <AssistantSelectionArea
-        selectedAssistantId='bare-aionrs'
-        assistants={manyAssistants()}
+        selectedAssistantId='bare-zeus'
+        assistants={withoutOpencode}
         localeKey='en-US'
         onSelectAssistant={vi.fn()}
       />
     );
 
-    fireEvent.click(screen.getByTestId('assistant-more-btn'));
-
-    await screen.findByTestId('assistant-overflow-panel');
-    // 2 overflow assistants in 4 columns → 1 row, far below the 5-row threshold.
-    expect(screen.queryByPlaceholderText('Search')).not.toBeInTheDocument();
-  });
-
-  it('shows the overflow search once the list exceeds five rows', async () => {
-    const bulk = Array.from({ length: 25 }, (_, index) =>
-      mkAssistant(`user-bulk-${index}`, `Bulk ${index}`, 'user', 'claude', 100 + index)
-    );
-
-    render(
-      <AssistantSelectionArea
-        selectedAssistantId='bare-aionrs'
-        assistants={[...manyAssistants(), ...bulk]}
-        localeKey='en-US'
-        maxVisibleAssistants={1}
-        onSelectAssistant={vi.fn()}
-      />
-    );
-
-    fireEvent.click(screen.getByTestId('assistant-more-btn'));
-
-    await screen.findByTestId('assistant-overflow-panel');
-    // 30 overflow assistants in 1 column → 30 rows, search becomes necessary.
-    expect(screen.getByPlaceholderText('Search')).toBeInTheDocument();
-  });
-
-  it('limits the top assistant row when a smaller visible count is provided', async () => {
-    render(
-      <AssistantSelectionArea
-        selectedAssistantId='bare-aionrs'
-        assistants={manyAssistants()}
-        localeKey='en-US'
-        maxVisibleAssistants={1}
-        onSelectAssistant={vi.fn()}
-      />
-    );
-
-    expect(screen.getByTestId('preset-pill-bare-aionrs')).toBeInTheDocument();
-    expect(screen.queryByTestId('preset-pill-user-research')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('preset-pill-user-review')).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByTestId('assistant-more-btn'));
-
-    expect(await screen.findByTestId('assistant-overflow-user-research')).toBeInTheDocument();
-    expect(screen.getByTestId('assistant-overflow-user-review')).toBeInTheDocument();
+    expect(screen.queryByTestId('workspace-pill-office')).not.toBeInTheDocument();
+    expect(screen.getByTestId('workspace-pill-design')).toBeInTheDocument();
+    expect(screen.getByTestId('workspace-pill-dev')).toBeInTheDocument();
   });
 
   it('reports the real assistant id when a pill is selected', () => {
@@ -203,78 +104,27 @@ describe('AssistantSelectionArea', () => {
 
     render(
       <AssistantSelectionArea
-        selectedAssistantId='bare-aionrs'
-        assistants={assistants()}
+        selectedAssistantId='bare-zeus'
+        assistants={engines()}
         localeKey='en-US'
         onSelectAssistant={onSelectAssistant}
       />
     );
 
-    fireEvent.click(screen.getByTestId('preset-pill-builtin-writer'));
+    fireEvent.click(screen.getByTestId('workspace-pill-office'));
 
-    expect(onSelectAssistant).toHaveBeenCalledWith('builtin-writer');
+    expect(onSelectAssistant).toHaveBeenCalledWith('bare-opencode');
   });
 
-  it('orders assistant pills by group then sort_order before applying overflow', () => {
-    render(
-      <AssistantSelectionArea
-        selectedAssistantId='bare-aionrs'
-        assistants={[
-          mkAssistant('late', 'Late', 'user', 'claude', 90),
-          mkAssistant('early', 'Early', 'user', 'claude', 5),
-          ...assistants(),
-          mkAssistant('mid', 'Mid', 'user', 'claude', 15),
-        ]}
-        localeKey='en-US'
-        onSelectAssistant={vi.fn()}
-      />
+  it('renders nothing when no engine row is available', () => {
+    const { container } = render(
+      <AssistantSelectionArea selectedAssistantId={null} assistants={[]} localeKey='en-US' onSelectAssistant={vi.fn()} />
     );
 
-    // CLI (generated) first, then user-created by sort_order (Early 5, Mid 15,
-    // Late 90); the official Writer sinks to the bottom group and overflows.
-    expect(
-      screen
-        .getAllByRole('button')
-        .slice(0, 4)
-        .map((node) => node.textContent?.trim())
-    ).toEqual(['Aion CLI', 'Early', 'Mid', 'Late']);
+    expect(container.firstChild).toBeNull();
   });
 
-  it('keeps a selected overflow assistant visible in the top pill row', () => {
-    render(
-      <AssistantSelectionArea
-        selectedAssistantId='user-finance'
-        assistants={manyAssistants()}
-        localeKey='en-US'
-        onSelectAssistant={vi.fn()}
-      />
-    );
-
-    // The selected overflow assistant (finance) is pulled into the top row;
-    // translate (the last of the visible-4 before pull-in) drops to overflow.
-    expect(screen.getByTestId('preset-pill-user-finance')).toBeInTheDocument();
-    expect(screen.queryByTestId('preset-pill-user-translate')).not.toBeInTheDocument();
-  });
-
-  it('uses the last visible slot for an overflow selection at smaller visible counts', () => {
-    render(
-      <AssistantSelectionArea
-        selectedAssistantId='user-finance'
-        assistants={manyAssistants()}
-        localeKey='en-US'
-        maxVisibleAssistants={2}
-        onSelectAssistant={vi.fn()}
-      />
-    );
-
-    expect(screen.getAllByTestId(/^preset-pill-/).map((node) => node.getAttribute('data-assistant-id'))).toEqual([
-      'bare-aionrs',
-      'user-finance',
-    ]);
-    expect(screen.queryByTestId('preset-pill-user-research')).not.toBeInTheDocument();
-  });
-
-  it('can re-render from an empty assistant catalog without breaking hook order', () => {
+  it('can re-render from an empty catalog without breaking hook order', () => {
     const { rerender } = render(
       <AssistantSelectionArea
         selectedAssistantId={null}
@@ -287,40 +137,30 @@ describe('AssistantSelectionArea', () => {
     expect(() =>
       rerender(
         <AssistantSelectionArea
-          selectedAssistantId='bare-aionrs'
-          assistants={assistants()}
+          selectedAssistantId='bare-zeus'
+          assistants={engines()}
           localeKey='en-US'
           onSelectAssistant={vi.fn()}
         />
       )
     ).not.toThrow();
 
-    expect(screen.getByTestId('preset-pill-bare-aionrs')).toBeInTheDocument();
+    expect(screen.getByTestId('workspace-pill-design')).toBeInTheDocument();
   });
 });
 
-function assistants(): Assistant[] {
+function engines(): Assistant[] {
   return [
-    {
-      id: 'bare-aionrs',
-      source: 'generated',
-      name: 'Aion CLI',
-      name_i18n: {},
-      description_i18n: {},
-      enabled: true,
-      sort_order: 10,
-      preset_agent_type: 'aionrs',
-      enabled_skills: [],
-      custom_skill_names: [],
-      disabled_builtin_skills: [],
-      context_i18n: {},
-      prompts: ['Summarize today'],
-      prompts_i18n: {},
-      models: [],
-      agent_status: 'online',
-      team_selectable: true,
-      deletable: false,
-    },
+    mkGenerated('bare-opencode', 'OpenCode', 'opencode', 10),
+    mkGenerated('bare-zeus', 'Zeus', 'aionrs', 20),
+    mkGenerated('bare-claude', 'Claude Code', 'claude', 30),
+  ];
+}
+
+function noise(): Assistant[] {
+  return [
+    mkGenerated('bare-gemini', 'Gemini CLI', 'gemini', 40),
+    mkGenerated('bare-codex', 'Codex CLI', 'codex', 50),
     {
       id: 'builtin-writer',
       source: 'builtin',
@@ -328,13 +168,14 @@ function assistants(): Assistant[] {
       name_i18n: {},
       description_i18n: {},
       enabled: true,
-      sort_order: 20,
-      preset_agent_type: 'claude',
+      sort_order: 60,
+      agent_id: 'agent-writer',
+      agent: { type: 'aionrs', source: 'internal' },
       enabled_skills: [],
       custom_skill_names: [],
       disabled_builtin_skills: [],
       context_i18n: {},
-      prompts: ['Draft a post'],
+      prompts: [],
       prompts_i18n: {},
       models: [],
       agent_status: 'online',
@@ -344,32 +185,17 @@ function assistants(): Assistant[] {
   ];
 }
 
-function manyAssistants(): Assistant[] {
-  return [
-    ...assistants(),
-    mkAssistant('user-research', 'Researcher', 'user', 'gemini', 30),
-    mkAssistant('user-review', 'Reviewer', 'user', 'codex', 40),
-    mkAssistant('user-translate', 'Translator', 'user', 'qwen', 50),
-    mkAssistant('user-finance', 'Finance', 'user', 'claude', 60),
-  ];
-}
-
-function mkAssistant(
-  id: string,
-  name: string,
-  source: Assistant['source'],
-  preset_agent_type: string,
-  sort_order: number
-): Assistant {
+function mkGenerated(id: string, name: string, backend: string, sort_order: number): Assistant {
   return {
     id,
-    source,
+    source: 'generated',
     name,
     name_i18n: {},
     description_i18n: {},
     enabled: true,
     sort_order,
-    preset_agent_type,
+    agent_id: `agent-${backend}`,
+    agent: { type: backend === 'aionrs' ? 'aionrs' : 'acp', source: 'builtin', acp_backend: backend },
     enabled_skills: [],
     custom_skill_names: [],
     disabled_builtin_skills: [],
@@ -379,6 +205,6 @@ function mkAssistant(
     models: [],
     agent_status: 'online',
     team_selectable: true,
-    deletable: source === 'user',
+    deletable: false,
   };
 }
