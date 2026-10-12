@@ -5,7 +5,9 @@
  *
  * Health panel for the isolated agent runtime: shows the app-managed
  * claude/opencode binaries, whether the agent overrides were applied, and
- * offers the one-click knowledge-work / document plugin bootstrap.
+ * offers the one-click document-skills bootstrap. Knowledge-work skills no
+ * longer flow through here — they are vendored into the backend's builtin
+ * skill corpus and reach every agent via the mode presets.
  */
 
 import { Button, Message, Typography } from '@arco-design/web-react';

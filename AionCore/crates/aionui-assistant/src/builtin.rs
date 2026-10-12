@@ -285,38 +285,21 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Embedded-source sanity: the bundle shipped with the crate must be
-    // well-formed and non-empty. Acts as a compile-time → runtime bridge
-    // guard (if the manifest is ever broken or the include_dir path is
-    // wrong, this test fails immediately rather than at user-hit-404 time).
+    // Embedded-source sanity: the Zeus fork ships an empty builtin bundle —
+    // the catalog is a fixed three-engine set and the butler was removed.
+    // Acts as a compile-time → runtime bridge guard: if a preset ever creeps
+    // back into the manifest (or the include_dir path is wrong), this test
+    // fails immediately rather than at user-hit-404 time.
     // -----------------------------------------------------------------------
 
     #[test]
-    fn load_embedded_has_expected_builtins() {
+    fn load_embedded_has_no_builtins() {
         let reg = BuiltinAssistantRegistry::load_embedded();
-        assert!(!reg.is_empty(), "embedded registry should contain the shipped presets");
-        // Sanity-check the known id from the committed manifest (the butler is
-        // the only shipped builtin — knowledge-work presets were removed).
-        assert!(reg.has("aionui-assistant"));
-    }
-
-    #[test]
-    fn load_embedded_rule_bytes_available_for_shipped_preset() {
-        let reg = BuiltinAssistantRegistry::load_embedded();
-        let bytes = reg
-            .rule_bytes("aionui-assistant", "en-US")
-            .expect("shipped aionui-assistant en-US rule should resolve from the embedded bundle");
-        assert!(!bytes.is_empty());
-        let text = std::str::from_utf8(&bytes).expect("rule file should be valid utf-8");
-        assert!(text.len() > 100, "rule file should have real content");
-    }
-
-    #[test]
-    fn embedded_rule_missing_locale_returns_none() {
-        let reg = BuiltinAssistantRegistry::load_embedded();
-        // The manifest declares rule_file as "rules/{id}.{locale}.md"; a
-        // made-up locale can't resolve.
-        assert!(reg.rule_bytes("aionui-assistant", "xx-YY").is_none());
+        assert!(reg.is_empty(), "Zeus ships no builtin assistant presets");
+        assert!(
+            !reg.has("aionui-assistant"),
+            "the butler must stay out of the shipped bundle"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -465,16 +448,6 @@ mod tests {
         );
         let reg = BuiltinAssistantRegistry::load_from_dir(tmp.path().to_path_buf());
         assert!(reg.avatar_asset("emoji-avatar").is_none());
-    }
-
-    #[test]
-    fn embedded_avatar_asset_returns_bytes_and_extension_for_shipped_file_avatar() {
-        let reg = BuiltinAssistantRegistry::load_embedded();
-        let asset = reg
-            .avatar_asset("aionui-assistant")
-            .expect("shipped aionui-assistant avatar should resolve from the embedded bundle");
-        assert!(!asset.bytes.is_empty());
-        assert_eq!(asset.extension.as_deref(), Some("jpg"));
     }
 
     #[test]

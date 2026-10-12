@@ -1245,7 +1245,7 @@
       "opencode": "OpenCode",
       "refresh": "Refresh",
       "installPlugins": "Set up plugins",
-      "pluginsDone": "Plugins installed (17 knowledge-work plugins + document skills, mirrored to OpenCode)",
+      "pluginsDone": "Document skills installed (docx/xlsx/pptx/pdf, mirrored to OpenCode; knowledge-work skills ship in the app's builtin skill library)",
       "pluginsFailed": "Plugin setup failed — check the log",
       "overridesApplied": "Isolated runtimes wired in ({{count}} agents)",
       "overridesPending": "Runtime incomplete; will wire in on next app restart"

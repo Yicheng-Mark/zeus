@@ -45,7 +45,7 @@ const AssistantSettings: React.FC = () => {
 
   // Keep the current management surface when returning from the editor. The
   // unified Enabled tab is the default entry point for assistant ordering.
-  const [homeTab, setHomeTab] = React.useState<'enabled' | 'mine' | 'official'>('enabled');
+  const [homeTab, setHomeTab] = React.useState<'enabled' | 'mine'>('enabled');
 
   // "Chat" on an assistant → open a new conversation with it preselected.
   const handleStartChat = useCallback(
@@ -238,21 +238,7 @@ const AssistantSettings: React.FC = () => {
                 setActiveAssistantId(assistant.id);
                 void editor.handleEdit(assistant);
               }}
-              onOpenSettings={(assistant) => {
-                setActiveAssistantId(assistant.id);
-                void editor.handleEdit(assistant);
-              }}
-              onDuplicate={(assistant) => {
-                // A duplicate becomes a new user assistant, so return to My
-                // Assistants after saving — not the Official tab it came from.
-                setHomeTab('mine');
-                void editor.handleDuplicate(assistant);
-              }}
               onDelete={(assistant) => editor.handleDeleteRequest(assistant)}
-              onCreate={() => {
-                setHomeTab('mine');
-                void editor.handleCreate();
-              }}
               onToggleEnabled={(assistant, checked) => void editor.handleToggleEnabled(assistant, checked)}
               onReorderEnabled={async (activeId, overId) => {
                 try {

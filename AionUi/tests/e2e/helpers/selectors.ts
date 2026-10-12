@@ -155,7 +155,6 @@ export const ASSISTANT_PILL_SELECTED =
 export const ASSISTANT_EDITOR_SURFACE = '[data-testid="assistant-editor-page"], [data-testid="assistant-edit-drawer"]';
 
 /** Create assistant button. */
-export const BTN_CREATE_ASSISTANT = '[data-testid="btn-create-assistant"]';
 
 /** Save assistant button. */
 export const BTN_SAVE_ASSISTANT = '[data-testid="btn-save-assistant"]';

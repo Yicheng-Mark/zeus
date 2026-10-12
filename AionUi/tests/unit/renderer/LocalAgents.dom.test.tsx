@@ -66,10 +66,6 @@ vi.mock('@renderer/hooks/agent/useManagedAgents', () => ({
 vi.mock('@/common', () => ({
   ipcBridge: {
     acpConversation: {
-      createCustomAgent: { invoke: vi.fn() },
-      updateCustomAgent: { invoke: vi.fn() },
-      deleteCustomAgent: { invoke: vi.fn() },
-      setAgentEnabled: { invoke: vi.fn() },
       checkManagedAgentHealthById: { invoke: vi.fn() },
     },
     // Bound-assistant avatar stacks fetch the assistant list via SWR.
@@ -86,11 +82,6 @@ vi.mock('@renderer/utils/platform', async () => {
     openExternalUrl,
   };
 });
-
-// Keep the test focused on LocalAgents' own logic — stub heavy children.
-vi.mock('@/renderer/components/base/AionModal', () => ({ default: () => null }));
-vi.mock('@renderer/pages/settings/AgentSettings/InlineAgentEditor', () => ({ default: () => null }));
-vi.mock('@renderer/pages/settings/AgentSettings/AgentHubModal', () => ({ AgentHubModal: () => null }));
 
 import LocalAgents from '@renderer/pages/settings/AgentSettings/LocalAgents';
 import AgentModalContent from '@renderer/components/settings/SettingsModal/contents/AgentModalContent';
@@ -133,17 +124,6 @@ const makeAgents = () => [
     available: false,
     installed: false,
     status: 'missing',
-  },
-  {
-    id: 'custom-1',
-    name: 'My Agent',
-    agent_type: 'acp',
-    agent_source: 'custom',
-    command: 'sh',
-    enabled: true,
-    available: true,
-    installed: true,
-    status: 'offline',
   },
 ];
 
@@ -188,7 +168,7 @@ describe('LocalAgents', () => {
     });
   });
 
-  it('reads the managed-agents view and renders detected + custom sections', () => {
+  it('reads the managed-agents view and renders the detected section', () => {
     useManagedAgents.mockReturnValue({
       agents: makeAgents(),
       revalidate: vi.fn(),
@@ -197,11 +177,12 @@ describe('LocalAgents', () => {
 
     render(<LocalAgents />);
 
-    // Proves L30 (useManagedAgents) ran and fed the derived lists.
+    // Proves the useManagedAgents hook ran and fed the derived list.
     expect(useManagedAgents).toHaveBeenCalled();
     expect(screen.getByText('Aion CLI')).toBeTruthy();
     expect(screen.getByText('Claude Code')).toBeTruthy();
-    expect(screen.getByText('My Agent')).toBeTruthy();
+    // The custom-agent section is gone along with custom-agent creation.
+    expect(screen.queryByText('settings.agentManagement.customAgents')).toBeNull();
   });
 
   it('shows the empty state when no detected agents are present', () => {
@@ -210,11 +191,10 @@ describe('LocalAgents', () => {
     render(<LocalAgents />);
 
     expect(screen.getByText('settings.agentManagement.localAgentsEmpty')).toBeTruthy();
-    expect(screen.getByText('settings.agentManagement.customAgents')).toBeTruthy();
-    expect(screen.getByText('settings.agentManagement.customEmpty')).toBeTruthy();
+    expect(screen.queryByText('settings.agentManagement.customEmpty')).toBeNull();
   });
 
-  it('renders official/custom sections with management statuses and removes the chat shortcut', () => {
+  it('renders official sections with management statuses and removes the chat shortcut', () => {
     useManagedAgents.mockReturnValue({
       agents: makeAgents(),
       revalidate: vi.fn(),
@@ -224,10 +204,8 @@ describe('LocalAgents', () => {
     render(<LocalAgents />);
 
     expect(screen.getByText('settings.agents')).toBeTruthy();
-    expect(screen.getByText('settings.agentManagement.customAgents')).toBeTruthy();
     // Only Claude Code shows 'missing' now; openclaw-gateway is filtered out as deprecated
     expect(screen.getByText('settings.agentManagement.statusMissing')).toBeTruthy();
-    expect(screen.getByText('settings.agentManagement.statusOffline')).toBeTruthy();
     expect(screen.queryByText('settings.agentManagement.goToChat')).toBeNull();
     // Verify deprecated agent is filtered out
     expect(screen.queryByText('OpenClaw Gateway')).toBeNull();
@@ -346,7 +324,7 @@ describe('LocalAgents', () => {
     expect(getBoundAssistants(aionrsAgent, assistants)).toEqual([]);
   });
 
-  it('pins Kimi right after the aionrs agent in the official list', () => {
+  it('keeps the aionrs agent first and sorts the rest alphabetically', () => {
     useManagedAgents.mockReturnValue({
       agents: [
         ...makeAgents(),
@@ -368,13 +346,15 @@ describe('LocalAgents', () => {
 
     render(<LocalAgents />);
 
-    // Alphabetically Claude Code < Kimi, so this order proves the pin rule:
-    // aionrs stays first, Kimi jumps ahead of the localeCompare ordering.
+    // aionrs stays pinned first; everything else follows localeCompare order
+    // (Claude Code < Kimi). No per-backend pinning anymore. compareDocumentPosition
+    // reads as "the ARGUMENT precedes the RECEIVER", so aion-first is asserted
+    // by asking whether aion precedes claude from claude's perspective.
     const aion = screen.getByText('Aion CLI');
     const kimi = screen.getByText('Kimi');
     const claude = screen.getByText('Claude Code');
-    expect(kimi.compareDocumentPosition(aion) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
-    expect(claude.compareDocumentPosition(kimi) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    expect(claude.compareDocumentPosition(aion) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    expect(kimi.compareDocumentPosition(claude) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
   });
 
   it('renders agent management as a single diagnostics page without local/remote tabs', () => {
@@ -394,31 +374,6 @@ describe('LocalAgents', () => {
 
     expect(screen.getByText('Aion CLI')).toBeInTheDocument();
     expect(screen.queryByText('settings.agentManagement.localAgents')).toBeNull();
-  });
-
-  it('surfaces custom-agent toggle failures to the user', async () => {
-    const refreshCatalog = vi.fn().mockResolvedValue(undefined);
-    useManagedAgents.mockReturnValue({
-      agents: makeAgents(),
-      revalidate: vi.fn(),
-      refreshCatalog,
-    });
-    vi.mocked(ipcBridge.acpConversation.setAgentEnabled.invoke).mockRejectedValue({
-      backendMessage: 'permission denied',
-    });
-
-    render(<LocalAgents />);
-
-    fireEvent.click(screen.getByRole('switch'));
-
-    await waitFor(() => {
-      expect(ipcBridge.acpConversation.setAgentEnabled.invoke).toHaveBeenCalledWith({
-        id: 'custom-1',
-        enabled: false,
-      });
-      expect(messageError).toHaveBeenCalledWith('permission denied');
-    });
-    expect(refreshCatalog).not.toHaveBeenCalled();
   });
 
   it('renders the availability filter as underline tabs and switches the visible official agents', () => {

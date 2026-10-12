@@ -3,10 +3,18 @@
  * Copyright 2025 AionUi (aionui.com)
  * SPDX-License-Identifier: Apache-2.0
  *
- * Install the knowledge-work / document plugin set into the ISOLATED Claude
- * Code environment (the app-managed claude.exe + CLAUDE_CONFIG_DIR under
+ * Install the document plugin set into the ISOLATED Claude Code environment
+ * (the app-managed claude.exe + CLAUDE_CONFIG_DIR under
  * %LOCALAPPDATA%\AionUiAgent). Plugins land in the isolated config dir only;
  * the user's global ~/.claude is untouched.
+ *
+ * The knowledge-work plugin skills are NOT installed here anymore: they are
+ * vendored into the backend's builtin-skills corpus (see
+ * AionCore/scripts/vendor-knowledge-work-plugins.py) and flow to every agent
+ * through the app's own skill system — per-mode presets on the three fixed
+ * assistants, model-invoked on demand. This module only covers what that
+ * system cannot deliver: the anthropics/skills document-skills package that
+ * OpenCode consumes from its own config-dir skills folder.
  *
  * All commands are idempotent: re-running reports "already installed" and
  * succeeds, so this doubles as a repair action from the settings UI.
@@ -18,37 +26,13 @@ import { cp, mkdir, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { IsolatedRuntimePaths } from './paths';
 
-/** The 17 Anthropic-authored plugins in anthropics/knowledge-work-plugins. */
-export const KNOWLEDGE_WORK_PLUGINS = [
-  'productivity',
-  'sales',
-  'finance',
-  'data',
-  'legal',
-  'marketing',
-  'customer-support',
-  'product-management',
-  'engineering',
-  'human-resources',
-  'design',
-  'operations',
-  'small-business',
-  'bio-research',
-  'enterprise-search',
-  'cowork-plugin-management',
-  'pdf-viewer',
-] as const;
-
 /** docx/xlsx/pptx/pdf authoring from anthropics/skills (source-available). */
 export const DOCUMENT_SKILLS_PLUGIN = 'document-skills@anthropic-agent-skills';
 
 /** The four document skills mirrored into the isolated OpenCode skills dir. */
 export const DOCUMENT_SKILL_NAMES = ['docx', 'xlsx', 'pptx', 'pdf'] as const;
 
-const MARKETPLACES = [
-  'anthropics/knowledge-work-plugins',
-  'anthropics/skills',
-];
+const MARKETPLACES = ['anthropics/skills'];
 
 export type PluginInstallReport = {
   ok: boolean;
@@ -128,12 +112,6 @@ export async function installIsolatedPlugins(paths: IsolatedRuntimePaths): Promi
       log.push(`$ claude plugin marketplace add ${marketplace}`);
       // eslint-disable-next-line no-await-in-loop
       log.push(await runIsolatedClaude(paths, ['plugin', 'marketplace', 'add', marketplace]));
-    }
-    for (const plugin of KNOWLEDGE_WORK_PLUGINS) {
-      const spec = `${plugin}@knowledge-work-plugins`;
-      log.push(`$ claude plugin install ${spec}`);
-      // eslint-disable-next-line no-await-in-loop
-      log.push(await runIsolatedClaude(paths, ['plugin', 'install', spec]));
     }
     log.push(`$ claude plugin install ${DOCUMENT_SKILLS_PLUGIN}`);
     log.push(await runIsolatedClaude(paths, ['plugin', 'install', DOCUMENT_SKILLS_PLUGIN]));

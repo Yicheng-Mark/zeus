@@ -605,6 +605,53 @@ function cleanupWindowsPackOutput() {
   }
 }
 
+// Post-build branding self-check. The Windows exe icon and version info are
+// written by electron-builder's signAndEditExecutable step; silent fallbacks
+// (this script's own retry below, or a manual --config.win.signAndEditExecutable=false
+// invocation) skip that step and ship a working exe wearing raw Electron branding.
+// Parse the built exe with resedit (already in the tree as an app-builder-lib
+// dependency) and fail the build when ProductName is not Zeus.
+function verifyWindowsExecutableBranding() {
+  const rootDir = path.resolve(__dirname, '..');
+  const exePath = path.join(rootDir, 'out', 'win-unpacked', 'Zeus.exe');
+  if (!fs.existsSync(exePath)) {
+    console.warn(`⚠️  Branding self-check skipped: ${exePath} not found`);
+    return;
+  }
+
+  let resedit;
+  try {
+    resedit = require('resedit');
+  } catch {
+    const bunDir = path.join(rootDir, 'node_modules', '.bun');
+    const candidate = fs.existsSync(bunDir)
+      ? fs
+          .readdirSync(bunDir)
+          .filter((entry) => entry.startsWith('resedit@'))
+          .map((entry) => path.join(bunDir, entry, 'node_modules', 'resedit'))[0]
+      : undefined;
+    if (!candidate) {
+      throw new Error('Branding self-check failed to resolve resedit; is node_modules intact?');
+    }
+    resedit = require(candidate);
+  }
+
+  const exe = resedit.NtExecutable.from(fs.readFileSync(exePath));
+  const res = resedit.NtExecutableResource.from(exe);
+  const versionInfo = resedit.Resource.VersionInfo.fromEntries(res.entries)[0];
+  const langs = versionInfo ? versionInfo.getAllLanguagesForStringValues() : [];
+  const productName = langs.length > 0 ? versionInfo.getStringValues(langs[0]).ProductName : undefined;
+
+  if (productName !== 'Zeus') {
+    throw new Error(
+      `Branding self-check FAILED: out/win-unpacked/Zeus.exe ProductName is ${JSON.stringify(
+        productName
+      )} (expected "Zeus"). The exe icon/version edit step did not run — typically the signAndEditExecutable=false fallback fired because Zeus.exe was running or locked during packaging. Close Zeus and rebuild, or repair via PROJECT-MEMORY.md 关键坑 5.`
+    );
+  }
+  console.log('✅ Branding self-check passed: ProductName=Zeus');
+}
+
 // Parse command line arguments
 const args = process.argv.slice(2);
 const archList = ['x64', 'arm64', 'ia32', 'armv7l'];
@@ -906,6 +953,10 @@ try {
         ].join('\n')
       );
     }
+  }
+
+  if (isWindowsBuild) {
+    verifyWindowsExecutableBranding();
   }
 
   console.log('✅ Build completed!');

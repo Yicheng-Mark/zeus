@@ -45,17 +45,6 @@ export async function openAssistantEditor(page: Page, assistant_id: string): Pro
   await page.locator('[data-testid="input-assistant-name"]').waitFor({ state: 'visible', timeout: 5_000 });
 }
 
-/** Click the Create Assistant button. */
-export async function clickCreateAssistant(page: Page): Promise<void> {
-  const editor = page.locator(ASSISTANT_EDITOR);
-  if (await editor.isVisible().catch(() => false)) {
-    await closeAssistantEditor(page);
-    await editor.waitFor({ state: 'hidden', timeout: 3_000 }).catch(() => {});
-  }
-  await page.locator('[data-testid="btn-create-assistant"]').click();
-  await editor.waitFor({ state: 'visible', timeout: 5_000 });
-}
-
 // ── CRUD helpers ────────────────────────────────────────────────────────────
 
 /** Fill the assistant name input. */

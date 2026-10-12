@@ -10,7 +10,6 @@ import { isBackendHttpError } from '@/common/adapter/httpBridge';
 import { configService } from '@/common/config/configService';
 import AionModal from '@/renderer/components/base/AionModal';
 import AionScrollArea from '@/renderer/components/base/AionScrollArea';
-import { useTalkToButler } from '@/renderer/hooks/assistant/useTalkToButler';
 import ChannelDingTalkLogo from '@/renderer/assets/channel-logos/dingtalk.svg';
 import ChannelDiscordLogo from '@/renderer/assets/channel-logos/discord.svg';
 import ChannelLarkLogo from '@/renderer/assets/channel-logos/lark.svg';
@@ -73,7 +72,6 @@ const DESKTOP_WEBUI_ALLOW_REMOTE_KEY = 'webui.desktop.allowRemote';
  */
 const WebuiModalContent: React.FC = () => {
   const { t, i18n } = useTranslation();
-  const talkToButler = useTalkToButler();
   const viewMode = useSettingsViewMode();
   const isPageMode = viewMode === 'page';
   const [activeTab, setActiveTab] = useState<'webui' | 'channels'>('webui');
@@ -658,25 +656,7 @@ const WebuiModalContent: React.FC = () => {
           {/* 允许局域网访问 / Allow LAN Access */}
           <PreferenceRow
             label={t('settings.webui.allowRemote')}
-            description={
-              <span className='text-t-secondary'>
-                {t('settings.webui.allowRemoteDesc')}
-                {'  '}
-                <button
-                  className='text-primary hover:underline cursor-pointer bg-transparent border-none p-0 text-12px'
-                  onClick={() =>
-                    void talkToButler({
-                      prompt: t('settings.talkToButler.prompt.setupRemote', {
-                        defaultValue:
-                          'Help me set up remote access so I can open AionUi from my phone or over the internet.',
-                      }),
-                    })
-                  }
-                >
-                  {t('settings.webui.letButlerSetup', { defaultValue: 'Let the butler set it up' })}
-                </button>
-              </span>
-            }
+            description={<span className='text-t-secondary'>{t('settings.webui.allowRemoteDesc')}</span>}
           >
             <Switch checked={allowRemotePreference} onChange={handleAllowRemoteChange} />
           </PreferenceRow>

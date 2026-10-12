@@ -9,14 +9,13 @@ import { removeImageGenerationEnvKeys, resolveImageGenerationMcpEnv } from '@/co
 import { mcpService } from '@/common/adapter/ipcBridge';
 import { type IMcpServer, BUILTIN_IMAGE_GEN_ID, BUILTIN_IMAGE_GEN_NAME } from '@/common/config/storage';
 import { isImageGenSupported } from '@/common/utils/imageModelAllowlist';
-import { Divider, Form, Tooltip, Message, Modal, Switch } from '@arco-design/web-react';
-import { Help } from '@icon-park/react';
+import { Button, Divider, Dropdown, Form, Menu, Tooltip, Message, Modal, Switch } from '@arco-design/web-react';
+import { Down, Help } from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import useConfigModelListWithImage from '@/renderer/hooks/agent/useConfigModelListWithImage';
 import AionScrollArea from '@/renderer/components/base/AionScrollArea';
 import AionSelect from '@/renderer/components/base/AionSelect';
-import TalkToButlerButton from '@/renderer/components/base/TalkToButlerButton';
 import AddMcpServerModal from '@/renderer/pages/settings/components/AddMcpServerModal';
 import McpServerItem from '@/renderer/pages/settings/ToolsSettings/McpServerItem';
 import {
@@ -159,30 +158,31 @@ const ModalMcpManagementSection: React.FC<{
   }, [serverToDelete, hideDeleteConfirm, handleDeleteMcpServer]);
 
   const renderAddButton = () => {
+    const importActions = (
+      <Menu
+        onClickMenuItem={(key) => {
+          if (key === 'json') {
+            setImportMode('json');
+            showAddMcpModal();
+          } else if (key === 'oneclick') {
+            setImportMode('oneclick');
+            showAddMcpModal();
+          }
+        }}
+      >
+        <Menu.Item key='json'>{t('settings.mcpImportFromJSON')}</Menu.Item>
+        <Menu.Item key='oneclick'>{t('settings.mcpOneKeyImport')}</Menu.Item>
+      </Menu>
+    );
     return (
-      <TalkToButlerButton
-        label={t('settings.mcpAddServer')}
-        chatLabel={t('settings.talkToButler.addViaChat', { defaultValue: 'Add via chat' })}
-        prompt={t('settings.talkToButler.prompt.addMcp', { defaultValue: 'Help me set up an MCP server.' })}
-        extraActions={[
-          {
-            key: 'json',
-            label: t('settings.mcpImportFromJSON'),
-            onClick: () => {
-              setImportMode('json');
-              showAddMcpModal();
-            },
-          },
-          {
-            key: 'oneclick',
-            label: t('settings.mcpOneKeyImport'),
-            onClick: () => {
-              setImportMode('oneclick');
-              showAddMcpModal();
-            },
-          },
-        ]}
-      />
+      <Dropdown droplist={importActions} trigger='click' position='br'>
+        <Button type='primary' size='small' className='!h-32px !rounded-8px !px-14px'>
+          <span className='flex items-center gap-6px'>
+            {t('settings.mcpAddServer')}
+            <Down theme='outline' size={14} fill='currentColor' />
+          </span>
+        </Button>
+      </Dropdown>
     );
   };
 

@@ -46,10 +46,6 @@ vi.mock('@/renderer/pages/settings/AssistantSettings/AssistantEditorPage', () =>
   default: () => <div data-testid='assistant-editor-page' />,
 }));
 
-vi.mock('@/renderer/pages/settings/AssistantSettings/AssistantListPanel', () => ({
-  default: () => <div data-testid='assistant-list-panel' />,
-}));
-
 vi.mock('@/renderer/utils/model/agentLogo', async () => {
   const actual = await vi.importActual<typeof import('@/renderer/utils/model/agentLogo')>(
     '@/renderer/utils/model/agentLogo'
@@ -160,7 +156,6 @@ describe('AssistantSettings', () => {
     );
 
     expect(screen.getByTestId('assistant-editor-page')).toBeInTheDocument();
-    expect(screen.queryByTestId('assistant-list-panel')).not.toBeInTheDocument();
   });
 
   it('renders enabled assistants in one preferred cross-source list', () => {

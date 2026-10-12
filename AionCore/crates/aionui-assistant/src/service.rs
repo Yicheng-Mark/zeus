@@ -660,7 +660,19 @@ impl AssistantService {
                     default_thought_level_mode: "auto".into(),
                     default_thought_level_value: None,
                     default_skills_mode: "fixed".into(),
-                    default_skill_ids: "[]".into(),
+                    // Zeus fork: seed the mode's skill preset so the engine
+                    // starts with its share of the vendored knowledge-work
+                    // corpus; users can still adjust in the assistant editor
+                    // afterwards (the reconcile path never overwrites an
+                    // existing list). Migration 046 covers databases whose
+                    // three rows were created before this preset existed.
+                    default_skill_ids: serde_json::to_string(
+                        crate::zeus_mode_presets::mode_preset_skill_names(
+                            row.backend.as_deref(),
+                            row.agent_type,
+                        ),
+                    )
+                    .unwrap_or_else(|_| "[]".into()),
                     custom_skill_names: "[]".into(),
                     default_disabled_builtin_skill_ids: "[]".into(),
                     default_mcps_mode: "auto".into(),
@@ -3803,7 +3815,9 @@ mod tests {
             description: None,
             description_i18n: HashMap::new(),
             avatar: None,
-            agent_ref: "gemini".into(),
+            // Zeus keeps only claude / opencode / aionrs in the catalog, so
+            // fixture builtins bind to a keeper backend.
+            agent_ref: "claude".into(),
             enabled_skills: Vec::new(),
             custom_skill_names: Vec::new(),
             disabled_builtin_skills: Vec::new(),
@@ -4321,7 +4335,12 @@ mod tests {
 
         let detail = fx.service.get_detail("bare:agent-claude", Some("en-US")).await.unwrap();
         assert_eq!(detail.defaults.skills.mode, "fixed");
-        assert!(detail.defaults.skills.value.is_empty());
+        // Zeus fork: a generated assistant for a shipped engine is seeded with
+        // that mode's knowledge-work skill preset instead of an empty list.
+        assert_eq!(
+            detail.defaults.skills.value,
+            crate::zeus_mode_presets::DEV_MODE_SKILLS.iter().map(|s| s.to_string()).collect::<Vec<_>>()
+        );
         assert!(detail.capabilities.default_disabled_builtin_skill_ids.is_empty());
     }
 
@@ -5563,7 +5582,7 @@ mod tests {
             .update(
                 "builtin-office",
                 UpdateAssistantRequest {
-                    agent_id: Some("cc126dd5".into()),
+                    agent_id: Some("53861a53".into()),
                     defaults: Some(AssistantDefaultsRequest {
                         model: Some(AssistantDefaultScalarRequest {
                             mode: "fixed".into(),
@@ -5582,7 +5601,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(updated.source, AssistantSource::Builtin);
-        assert_eq!(updated.agent_id, "cc126dd5");
+        assert_eq!(updated.agent_id, "53861a53");
 
         let detail = fx.service.get_detail("builtin-office", Some("en-US")).await.unwrap();
         assert_eq!(detail.defaults.model.mode, "fixed");
@@ -5832,7 +5851,7 @@ mod tests {
             .update(
                 "builtin-office",
                 UpdateAssistantRequest {
-                    agent_id: Some("cc126dd5".into()),
+                    agent_id: Some("53861a53".into()),
                     defaults: Some(AssistantDefaultsRequest {
                         model: Some(AssistantDefaultScalarRequest {
                             mode: "fixed".into(),
@@ -5936,7 +5955,7 @@ mod tests {
             .update(
                 "u1",
                 UpdateAssistantRequest {
-                    agent_id: Some("8e1acf31".into()),
+                    agent_id: Some("53861a53".into()),
                     ..Default::default()
                 },
             )
@@ -5944,7 +5963,7 @@ mod tests {
             .unwrap();
 
         let detail = fx.service.get_detail("u1", Some("en-US")).await.unwrap();
-        assert_eq!(detail.engine.agent_id, "8e1acf31");
+        assert_eq!(detail.engine.agent_id, "53861a53");
         assert_eq!(detail.defaults.model.mode, "auto");
         assert_eq!(detail.defaults.model.value, None);
         assert_eq!(detail.defaults.permission.mode, "auto");
@@ -6709,7 +6728,7 @@ mod tests {
             "assistants": [{
                 "id": "builtin-office",
                 "name": "Office",
-                "agent_ref": "gemini",
+                "agent_ref": "claude",
                 "rule_file": "rules/office.{locale}.md",
             }]
         });
@@ -6921,12 +6940,12 @@ mod tests {
             .create(CreateAssistantRequest {
                 id: Some("u1".into()),
                 name: "Mine".into(),
-                agent_id: Some("8e1acf31".into()),
+                agent_id: Some("53861a53".into()),
                 ..req_default()
             })
             .await
             .unwrap();
-        assert_eq!(created.agent_id, "8e1acf31");
+        assert_eq!(created.agent_id, "53861a53");
     }
 
     fn req_default() -> CreateAssistantRequest {

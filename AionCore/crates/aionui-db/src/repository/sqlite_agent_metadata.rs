@@ -862,46 +862,19 @@ mod tests {
     async fn seed_rows_populated_after_migrations() {
         let (repo, _db) = setup().await;
         let rows = repo.list_all().await.unwrap();
-        // 39 ACP vendors + 2 non-ACP builtins + 1 internal = 42.
-        assert_eq!(rows.len(), 43, "seed rows: 42 pre-existing + antigravity");
+        // Zeus trims the catalog (045) to the three shipped engines:
+        // Claude Code + OpenCode builtins and the internal aionrs row.
+        assert_eq!(rows.len(), 3, "seed rows: Zeus keeps exactly three engines");
         assert!(
             rows.iter()
                 .any(|r| r.name == "Claude Code" && r.agent_source == "builtin")
         );
-        assert!(
-            rows.iter()
-                .any(|r| r.name == "Aion CLI" && r.agent_source == "internal")
-        );
-        // Nanobot and OpenClaw are builtin (not internal).
-        assert!(rows.iter().any(|r| r.name == "Nanobot" && r.agent_source == "builtin"));
-        assert!(rows.iter().any(|r| r.name == "OpenClaw"
-            && r.agent_type == "acp"
-            && r.backend.as_deref() == Some("openclaw")
-            && r.agent_source == "builtin"));
-        assert!(
-            rows.iter()
-                .any(|r| r.name == "OpenClaw" && r.agent_type == "openclaw-gateway" && r.agent_source == "builtin")
-        );
-        let hermes = rows
-            .iter()
-            .find(|r| r.name == "Hermes" && r.agent_source == "builtin")
-            .expect("seeded hermes row");
-        assert_eq!(hermes.yolo_id, None);
-        let codex = rows
-            .iter()
-            .find(|r| r.name == "Codex CLI" && r.backend.as_deref() == Some("codex") && r.agent_source == "builtin")
-            .expect("seeded codex row");
-        assert_eq!(codex.yolo_id.as_deref(), Some("agent-full-access"));
-        let pi = rows
-            .iter()
-            .find(|r| r.name == "Pi" && r.backend.as_deref() == Some("pi") && r.agent_source == "builtin")
-            .expect("seeded Pi ACP row");
-        assert_eq!(pi.command.as_deref(), Some("npx"));
-        assert_eq!(pi.args.as_deref(), Some(r#"["-y","pi-acp"]"#));
-        assert_eq!(
-            pi.agent_source_info.as_deref(),
-            Some(r#"{"binary_name":"pi","bridge_binary":"npx"}"#)
-        );
+        assert!(rows.iter().any(|r| r.name == "OpenCode" && r.agent_source == "builtin"));
+        assert!(rows.iter().any(|r| r.name == "Zeus" && r.agent_source == "internal"));
+        // The swept vendors must be gone entirely.
+        for gone in ["Codex CLI", "Gemini CLI", "Kimi", "Hermes", "Nanobot", "OpenClaw"] {
+            assert!(!rows.iter().any(|r| r.name == gone), "{gone} must not survive 045");
+        }
     }
 
     #[tokio::test]
@@ -1002,34 +975,27 @@ mod tests {
             Some("auto_edit")
         );
 
-        let kiro = repo.get("e044000d").await.unwrap().expect("seeded kiro row");
-        assert!(kiro.icon.is_none());
+        // Zeus keeps exactly three engines; the icon-less kiro row (NULL icon
+        // backfill case) was removed with the rest of the vendor sweep.
+        assert_eq!(rows.len(), 3);
     }
 
     #[tokio::test]
     async fn builtin_managed_acp_rows_drop_runtime_bridge_command() {
         let (repo, _db) = setup().await;
 
+        // Claude is the only managed-ACP builtin left after the Zeus sweep;
+        // it runs as a direct CLI (bridge command dropped, binary resolved
+        // from agent_source_info). The npx-bridge vendors (codex, codebuddy)
+        // were removed with the rest of the catalog.
         let claude = repo.get("2d23ff1c").await.unwrap().expect("seeded claude row");
         assert!(claude.command.is_none());
         assert_eq!(claude.args.as_deref(), Some(r#"[]"#));
         assert_eq!(claude.agent_source_info.as_deref(), Some(r#"{"binary_name":"claude"}"#));
 
-        let codex = repo.get("8e1acf31").await.unwrap().expect("seeded codex row");
-        assert!(codex.command.is_none());
-        assert_eq!(codex.args.as_deref(), Some(r#"[]"#));
-        assert_eq!(codex.agent_source_info.as_deref(), Some(r#"{"binary_name":"codex"}"#));
-
-        let codebuddy = repo.get("8b20fd41").await.unwrap().expect("seeded codebuddy row");
-        assert_eq!(codebuddy.command.as_deref(), Some("npx"));
-        assert_eq!(
-            codebuddy.args.as_deref(),
-            Some(r#"["-y","--package","@tencent-ai/codebuddy-code","codebuddy","--acp"]"#)
-        );
-        assert_eq!(
-            codebuddy.agent_source_info.as_deref(),
-            Some(r#"{"binary_name":"codebuddy","bridge_binary":"npx"}"#)
-        );
+        let opencode = repo.get("53861a53").await.unwrap().expect("seeded opencode row");
+        assert_eq!(opencode.command.as_deref(), Some("opencode"));
+        assert_eq!(opencode.args.as_deref(), Some(r#"["acp"]"#));
     }
 
     #[tokio::test]

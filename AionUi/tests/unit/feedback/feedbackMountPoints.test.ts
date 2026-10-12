@@ -37,22 +37,17 @@ describe('FeedbackButton mount points — source-level wiring', () => {
     expect(src).toMatch(/<FeedbackButton\s+module=['"]conversation-session['"]/);
   });
 
-  it('every conversation error surface pairs FeedbackButton with ButlerDiagnoseButton', () => {
+  it('conversation error surfaces carry no ButlerDiagnoseButton anymore', () => {
     for (const file of [
       'packages/desktop/src/renderer/pages/conversation/Messages/components/MessageToolGroup.tsx',
       'packages/desktop/src/renderer/pages/conversation/Messages/components/MessageTips.tsx',
       'packages/desktop/src/renderer/pages/conversation/Messages/components/MessageAgentStatus.tsx',
     ]) {
       const src = read(file);
-      const feedbackCount = (src.match(/<FeedbackButton/g) ?? []).length;
-      const butlerCount = (src.match(/<ButlerDiagnoseButton/g) ?? []).length;
-      expect(butlerCount, `${file}: each FeedbackButton needs a ButlerDiagnoseButton beside it`).toBe(feedbackCount);
+      expect(src, `${file}: butler entry points were removed with the butler assistant`).not.toContain(
+        'ButlerDiagnoseButton'
+      );
     }
-  });
-
-  it('InlineAgentEditor has no FeedbackButton', () => {
-    const src = read('packages/desktop/src/renderer/pages/settings/AgentSettings/InlineAgentEditor.tsx');
-    expect(src).not.toMatch(/<FeedbackButton/);
   });
 
   it('SystemModalContent wires module=system-settings', () => {

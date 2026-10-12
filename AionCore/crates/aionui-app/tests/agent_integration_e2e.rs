@@ -289,6 +289,43 @@ async fn management_endpoint_handles_openclaw_as_acp_backend() {
     let (mut app, services, _mock_tm) = build_app_with_mock_tasks().await;
     let (token, _csrf) = setup_and_login(&mut app, &services, "admin", "Pass123!").await;
 
+    // Zeus trimmed the seeded catalog to the three shipped engines, so seed a
+    // stand-in builtin ACP row with the same shape the openclaw seed had: an
+    // ACP agent whose `backend` is not a known vendor name.
+    services
+        .agent_registry
+        .repo_handle()
+        .upsert(&UpsertAgentMetadataParams {
+            id: "test-acp-openclaw",
+            icon: None,
+            name: "OpenClaw".into(),
+            name_i18n: None,
+            description: None,
+            description_i18n: None,
+            backend: Some("openclaw".into()),
+            agent_type: "acp",
+            agent_source: "builtin",
+            agent_source_info: Some("{}"),
+            enabled: true,
+            command: Some("openclaw".into()),
+            args: Some(r#"["acp"]"#.into()),
+            env: Some("[]"),
+            native_skills_dirs: None,
+            skill_delivery: None,
+            behavior_policy: Some("{}"),
+            yolo_id: Some("yolo"),
+            agent_capabilities: None,
+            auth_methods: None,
+            config_options: None,
+            available_modes: None,
+            available_models: None,
+            available_commands: None,
+            sort_order: 1,
+        })
+        .await
+        .unwrap();
+    services.agent_registry.hydrate().await.unwrap();
+
     let meta = services
         .agent_registry
         .find_builtin_by_backend("openclaw")
@@ -337,14 +374,16 @@ async fn agent_logos_endpoint_returns_backend_to_logo_catalog() {
             .map(str::to_owned)
     };
 
-    // Seeded builtin agents project their stored icon URL.
+    // Seeded builtin agents project their stored icon URL. Zeus ships three
+    // engines (claude / opencode / aionrs); the codex seed was removed with
+    // the catalog trim.
     assert_eq!(
         logo_for("claude").as_deref(),
         Some("/api/assets/logos/ai-major/claude.svg")
     );
     assert_eq!(
-        logo_for("codex").as_deref(),
-        Some("/api/assets/logos/tools/coding/codex.svg")
+        logo_for("opencode").as_deref(),
+        Some("/api/assets/logos/tools/coding/opencode-light.svg")
     );
 
     // Aion CLI has no vendor `backend` (NULL); it must still be keyed by its

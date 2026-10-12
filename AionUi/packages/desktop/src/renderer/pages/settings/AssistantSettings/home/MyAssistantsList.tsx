@@ -5,9 +5,8 @@
  */
 
 import type { AssistantListItem } from '../types';
-import { type AssistantEnabledFilter, filterByEnabled, groupMyAssistants } from '../assistantUtils';
+import { type AssistantEnabledFilter, filterByEnabled } from '../assistantUtils';
 import MyAssistantCard from './MyAssistantCard';
-import { useTalkToButler } from '@/renderer/hooks/assistant/useTalkToButler';
 import { Dropdown, Menu, Button } from '@arco-design/web-react';
 import { AllApplication, Down } from '@icon-park/react';
 import React, { useMemo, useState } from 'react';
@@ -20,8 +19,6 @@ type MyAssistantsListProps = {
   onDelete: (assistant: AssistantListItem) => void;
   onToggleEnabled: (assistant: AssistantListItem, checked: boolean) => void;
   onStartChat: (assistant: AssistantListItem) => void;
-  /** Switch to the Official tab (to duplicate an official assistant). */
-  onGoOfficial: () => void;
   searchActive?: boolean;
 };
 
@@ -44,26 +41,16 @@ const MyAssistantsList: React.FC<MyAssistantsListProps> = ({
   onDelete,
   onToggleEnabled,
   onStartChat,
-  onGoOfficial,
   searchActive = false,
 }) => {
   const { t } = useTranslation();
-  const talkToButler = useTalkToButler();
   const [filter, setFilter] = useState<AssistantEnabledFilter>('all');
 
-  // "Create via chat": hand off to the AionUi Butler on the home page with a
-  // ready-made create-an-assistant prompt (same flow as the header action).
-  const handleCreateViaChat = () => {
-    void talkToButler({
-      prompt: t('settings.talkToButler.prompt.createAssistant', {
-        defaultValue: 'Help me create a new assistant and walk me through setting it up.',
-      }),
-    });
-  };
-
-  const { cliAssistants, createdAssistants } = useMemo(() => {
+  // Zeus ships a fixed engine catalog, so this tab lists only the bare CLI
+  // assistants generated from those engines.
+  const cliAssistants = useMemo(() => {
     const filtered = filterByEnabled(assistants, filter);
-    return groupMyAssistants(filtered);
+    return filtered.filter((assistant) => assistant.source === 'generated');
   }, [assistants, filter]);
 
   const filterMenu = (
@@ -91,42 +78,6 @@ const MyAssistantsList: React.FC<MyAssistantsListProps> = ({
           onStartChat={onStartChat}
         />
       ))}
-    </div>
-  );
-
-  // The "created by me" group shows a guiding empty state when the user has
-  // no custom assistants yet (only in the unfiltered view — a filtered empty
-  // just means "no matches", not "none exist").
-  const hasVisibleAssistants = cliAssistants.length > 0 || createdAssistants.length > 0;
-  const createdEmpty = createdAssistants.length === 0 && filter === 'all' && !searchActive;
-
-  const renderCreatedEmpty = () => (
-    <div
-      className='flex flex-col items-center rounded-14px border border-dashed border-border-2 bg-fill-1/40 px-20px py-28px text-center'
-      data-testid='created-empty'
-    >
-      <div className='mb-6px text-13px font-600 text-t-primary'>
-        {t('settings.customEmptyTitle', { defaultValue: 'No custom assistants yet' })}
-      </div>
-      <p className='mb-16px max-w-360px text-12px leading-[1.6] text-t-secondary'>
-        {t('settings.customEmptyBody', {
-          defaultValue: 'Create one by chatting with the butler, or duplicate an official assistant into your own.',
-        })}
-      </p>
-      <div className='flex items-center gap-10px'>
-        <Button
-          type='primary'
-          size='small'
-          className='!rounded-8px'
-          onClick={handleCreateViaChat}
-          data-testid='created-empty-create'
-        >
-          {t('settings.customEmptyCreate', { defaultValue: 'Create via chat' })}
-        </Button>
-        <Button size='small' className='!rounded-8px' onClick={onGoOfficial} data-testid='created-empty-official'>
-          {t('settings.customEmptyBrowseOfficial', { defaultValue: 'Browse official' })}
-        </Button>
-      </div>
     </div>
   );
 
@@ -164,27 +115,15 @@ const MyAssistantsList: React.FC<MyAssistantsListProps> = ({
         </Dropdown>
       </div>
 
-      {searchActive && !hasVisibleAssistants ? (
+      {searchActive && cliAssistants.length === 0 ? (
         <div className='rounded-14px border border-dashed border-border-2 bg-fill-1/40 px-20px py-28px text-center text-13px text-t-secondary'>
           {t('settings.assistantNoMatch', { defaultValue: 'No assistants match the current filters.' })}
         </div>
       ) : null}
 
-      {/* Created-by-you group on top. */}
-      {createdAssistants.length > 0 || createdEmpty ? (
-        <div data-testid='group-created-section'>
-          {renderGroupHeader(
-            t('settings.assistantGroupCreated', { defaultValue: 'Created by you' }),
-            createdAssistants.length,
-            'bg-primary-5'
-          )}
-          {createdEmpty ? renderCreatedEmpty() : renderCardGrid(createdAssistants)}
-        </div>
-      ) : null}
-
-      {/* CLI group below. */}
+      {/* CLI group. */}
       {cliAssistants.length > 0 ? (
-        <div className='mt-20px' data-testid='group-cli'>
+        <div data-testid='group-cli'>
           {renderGroupHeader(
             t('settings.assistantGroupCli', { defaultValue: 'Your CLI' }),
             cliAssistants.length,

@@ -71,7 +71,6 @@ export { createTeam, ensureTeam, deleteTeam, cleanupTeamsByName } from './teamHe
 export {
   goToAssistantSettings,
   openAssistantEditor,
-  clickCreateAssistant,
   fillAssistantName,
   fillAssistantDescription,
   saveAssistant,
@@ -94,7 +93,6 @@ export {
   assistantEditById,
   presetPillById,
   ASSISTANT_EDITOR_SURFACE,
-  BTN_CREATE_ASSISTANT,
   BTN_SAVE_ASSISTANT,
   BTN_DELETE_ASSISTANT,
   BTN_SEARCH_ASSISTANT,

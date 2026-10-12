@@ -8,7 +8,6 @@ import type { IMessageAgentStatus } from '@/common/chat/chatLib';
 import { Badge, Typography } from '@arco-design/web-react';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import ButlerDiagnoseButton from '@/renderer/components/base/ButlerDiagnoseButton';
 import FeedbackButton from '@/renderer/components/base/FeedbackButton';
 
 const { Text } = Typography;
@@ -73,7 +72,6 @@ const MessageAgentStatus: React.FC<MessageAgentStatusProps> = ({ message }) => {
         {getStatusBadge()}
         {isError && (
           <>
-            <ButlerDiagnoseButton errorText={`${display_name}: ${t('acp.status.error')}`} />
             <FeedbackButton module='conversation-session' />
           </>
         )}

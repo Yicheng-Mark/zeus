@@ -28,10 +28,6 @@ vi.mock('@/renderer/components/base/AionSelect', () => {
   return { default: Object.assign(Select, { OptGroup: Select, Option: Select }) };
 });
 
-vi.mock('@/renderer/components/base/TalkToButlerButton', () => ({
-  default: () => <div>TalkToButlerButton</div>,
-}));
-
 vi.mock('@/renderer/pages/settings/components/AddMcpServerModal', () => ({
   default: () => null,
 }));

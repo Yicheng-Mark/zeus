@@ -12,6 +12,7 @@ pub mod error;
 pub mod routes;
 pub mod service;
 pub mod state;
+pub mod zeus_mode_presets;
 
 pub use agent_catalog::AssistantAgentCatalogPort;
 pub use builtin::{AvatarAsset, BuiltinAssistant, BuiltinAssistantRegistry};

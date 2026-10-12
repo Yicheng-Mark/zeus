@@ -108,20 +108,6 @@ const GuidPage: React.FC = () => {
       });
   }, []);
 
-  const handleToggleSkill = useCallback((skillName: string, isAuto: boolean) => {
-    if (isAuto) {
-      setGuidDisabledBuiltinSkills((prev) => {
-        const list = prev ?? [];
-        return list.includes(skillName) ? list.filter((s) => s !== skillName) : [...list, skillName];
-      });
-    } else {
-      setGuidEnabledSkills((prev) => {
-        const list = prev ?? [];
-        return list.includes(skillName) ? list.filter((s) => s !== skillName) : [...list, skillName];
-      });
-    }
-  }, []);
-
   const handleToggleMcpServer = useCallback((serverId: string) => {
     setGuidSelectedMcpServerIds((prev) => {
       const current = prev ?? [];
@@ -188,6 +174,29 @@ const GuidPage: React.FC = () => {
     resolvedAssistantDefaults.disabledBuiltinSkillIds,
     resolvedAssistantDefaults.skillIds,
   ]);
+  // Declared AFTER resolvedAssistantDefaults: the deps array below reads it at
+  // call time, so an earlier position would throw a TDZ ReferenceError during
+  // the first render (white screen).
+  const handleToggleSkill = useCallback(
+    (skillName: string, isAuto: boolean) => {
+      if (isAuto) {
+        setGuidDisabledBuiltinSkills((prev) => {
+          const list = prev ?? [];
+          return list.includes(skillName) ? list.filter((s) => s !== skillName) : [...list, skillName];
+        });
+      } else {
+        setGuidEnabledSkills((prev) => {
+          // Before the first explicit toggle the override is unset and the
+          // assistant's preset defaults travel with the send. Seed from those
+          // defaults so the first toggle adjusts them instead of discarding
+          // the whole preset (mode presets hold 60-170 skills).
+          const list = prev ?? resolvedAssistantDefaults.skillIds;
+          return list.includes(skillName) ? list.filter((s) => s !== skillName) : [...list, skillName];
+        });
+      }
+    },
+    [resolvedAssistantDefaults.skillIds]
+  );
   const skillDescriptionByName = useMemo(
     () => new Map(allSkills.map((skill) => [skill.name, skill.description])),
     [allSkills]
@@ -633,7 +642,7 @@ const GuidPage: React.FC = () => {
       onModeSelect={setGuidSelectedMode}
       allSkills={allSkills}
       disabledBuiltinSkills={guidDisabledBuiltinSkills ?? []}
-      enabledSkills={guidEnabledSkills ?? []}
+      enabledSkills={guidEnabledSkills ?? resolvedAssistantDefaults.skillIds}
       onToggleSkill={handleToggleSkill}
       mcpServers={availableMcpServers}
       selectedMcpServerIds={guidSelectedMcpServerIds ?? []}

@@ -1246,7 +1246,7 @@
       "opencode": "OpenCode",
       "refresh": "刷新状态",
       "installPlugins": "初始化插件",
-      "pluginsDone": "插件初始化完成(17 个知识工作插件 + 文档技能,已同步给 OpenCode)",
+      "pluginsDone": "文档技能初始化完成(docx/xlsx/pptx/pdf,已同步给 OpenCode;知识工作技能已内置到应用技能库)",
       "pluginsFailed": "插件初始化失败,请查看日志",
       "overridesApplied": "已接入隔离运行时({{count}} 个 agent)",
       "overridesPending": "运行时未完全就绪,重启应用后自动接入"
