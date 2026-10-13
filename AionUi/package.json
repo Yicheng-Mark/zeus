@@ -262,6 +262,10 @@
     "node": ">=22 <25"
   },
   "aioncoreVersion": "v0.2.2",
+  "aionuiEngines": {
+    "claudeSdk": "0.3.296",
+    "opencode": "v1.18.35"
+  },
   "electronRebuild": {
     "electronVersion": "^37.3.1"
   },

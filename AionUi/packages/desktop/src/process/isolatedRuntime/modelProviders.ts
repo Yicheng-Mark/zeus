@@ -26,6 +26,7 @@ import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { IsolatedRuntimePaths } from './paths';
+import { resolveBundledEngines } from './bundledEngines';
 import { claudeEnv, type AgentEnvEntry } from './agentOverrides';
 
 export type ProviderRow = {
@@ -199,7 +200,9 @@ async function syncClaude(port: number, paths: IsolatedRuntimePaths): Promise<Mo
 
     await api(port, `/api/agents/${encodeURIComponent(claudeRow.id)}/overrides`, {
       method: 'PUT',
-      body: JSON.stringify({ command_override: paths.claudeExe, env_override: env }),
+      // Same exe source as applyIsolatedAgentOverrides: bundled binaries win
+      // over the downloaded LOCALAPPDATA copies.
+      body: JSON.stringify({ command_override: resolveBundledEngines()?.claudeExe ?? paths.claudeExe, env_override: env }),
     });
   } catch (err) {
     result.error = err instanceof Error ? err.message : String(err);

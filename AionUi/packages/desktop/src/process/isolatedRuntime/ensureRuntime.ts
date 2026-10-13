@@ -3,15 +3,19 @@
  * Copyright 2025 AionUi (aionui.com)
  * SPDX-License-Identifier: Apache-2.0
  *
- * Ensure the app-managed CLI binaries exist under the isolated runtime root,
- * downloading them on first use. Missing binaries never block startup: the
- * bootstrap reports what is present and the UI health page can retry.
+ * Ensure the app-managed CLI binaries exist. Missing binaries never block
+ * startup: the bootstrap reports what is present and the UI health page can
+ * retry.
  *
- * Sources:
- *  - Claude Code: the `@anthropic-ai/claude-agent-sdk-win32-x64` npm platform
- *    package bundles the native claude.exe (same binary the official Agent
- *    SDK ships). Downloaded straight from the npm registry tarball.
- *  - OpenCode: the official `opencode-windows-x64.zip` GitHub release asset.
+ * Sources, in order:
+ *  1. Bundled with the app (resources/engines, staged at build time by
+ *     prepare-engine-runtimes.js) — used directly from the install dir, so
+ *     the engines are ready the moment the app opens, offline included.
+ *  2. Download on first boot into %LOCALAPPDATA%\AionUiAgent\runtime (the
+ *     repair path for builds/installs without a bundle):
+ *     - Claude Code: the `@anthropic-ai/claude-agent-sdk-win32-x64` npm
+ *       platform package (native claude.exe, npm registry tarball).
+ *     - OpenCode: the official `opencode-windows-x64.zip` GitHub release.
  *
  * curl + tar are used instead of node-fetch/zip libs because (a) Windows 10+
  * ships both in System32, and (b) curl honors the user's HTTP(S)_PROXY env,
@@ -23,6 +27,8 @@ import { promisify } from 'node:util';
 import { existsSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { IsolatedRuntimePaths } from './paths';
+import { resolveBundledEngines } from './bundledEngines';
+import { claudeEnv, opencodeEnv, type AgentEnvEntry } from './agentOverrides';
 
 const execFileAsync = promisify(execFile);
 
@@ -42,27 +48,38 @@ export type RuntimeStatus = {
   opencode: RuntimeBinaryStatus;
 };
 
-function run(cmd: string, args: string[], cwd?: string): Promise<{ stdout: string; stderr: string }> {
+function envObject(entries: AgentEnvEntry[]): NodeJS.ProcessEnv {
+  return Object.fromEntries(entries.map((entry) => [entry.name, entry.value]));
+}
+
+function run(
+  cmd: string,
+  args: string[],
+  opts?: { cwd?: string; env?: NodeJS.ProcessEnv }
+): Promise<{ stdout: string; stderr: string }> {
   return execFileAsync(cmd, args, {
-    cwd,
+    cwd: opts?.cwd,
+    env: opts?.env,
     timeout: DOWNLOAD_TIMEOUT_MS,
     windowsHide: true,
     maxBuffer: 32 * 1024 * 1024,
   });
 }
 
-async function claudeVersion(exe: string): Promise<string | undefined> {
+async function claudeVersion(exe: string, paths: IsolatedRuntimePaths): Promise<string | undefined> {
   try {
-    const { stdout } = await run(exe, ['--version']);
+    // Probe with the same isolation env a session spawn would carry, so the
+    // version check never reads the host's global claude config.
+    const { stdout } = await run(exe, ['--version'], { env: envObject(claudeEnv(paths)) });
     return stdout.trim().split('\n')[0] || undefined;
   } catch {
     return undefined;
   }
 }
 
-async function opencodeVersion(exe: string): Promise<string | undefined> {
+async function opencodeVersion(exe: string, paths: IsolatedRuntimePaths): Promise<string | undefined> {
   try {
-    const { stdout } = await run(exe, ['--version'], undefined);
+    const { stdout } = await run(exe, ['--version'], { env: envObject(opencodeEnv(paths)) });
     return stdout.trim().split('\n')[0] || undefined;
   } catch {
     return undefined;
@@ -91,9 +108,9 @@ async function latestOpencodeAssetUrl(): Promise<{ url: string; version: string 
 async function downloadClaude(paths: IsolatedRuntimePaths): Promise<RuntimeBinaryStatus> {
   const { url, version } = await latestClaudeTarballUrl();
   const tgz = join(paths.claudeDir, 'sdk-platform.tgz');
-  await run('curl', ['-sSL', '-o', tgz, url], paths.claudeDir);
+  await run('curl', ['-sSL', '-o', tgz, url], { cwd: paths.claudeDir });
   // bsdtar (System32 on Win10+) unpacks both tgz and zip.
-  await run('tar', ['-xzf', tgz], paths.claudeDir);
+  await run('tar', ['-xzf', tgz], { cwd: paths.claudeDir });
   rmSync(join(paths.claudeDir, 'package', 'LICENSE.md'), { force: true });
   rmSync(join(paths.claudeDir, 'package', 'package.json'), { force: true });
   rmSync(join(paths.claudeDir, 'package', 'README.md'), { force: true });
@@ -110,8 +127,8 @@ async function downloadClaude(paths: IsolatedRuntimePaths): Promise<RuntimeBinar
 async function downloadOpencode(paths: IsolatedRuntimePaths): Promise<RuntimeBinaryStatus> {
   const { url, version } = await latestOpencodeAssetUrl();
   const zip = join(paths.opencodeDir, OPENCODE_ASSET_NAME);
-  await run('curl', ['-sSL', '-o', zip, url], paths.opencodeDir);
-  await run('tar', ['-xf', OPENCODE_ASSET_NAME], paths.opencodeDir);
+  await run('curl', ['-sSL', '-o', zip, url], { cwd: paths.opencodeDir });
+  await run('tar', ['-xf', OPENCODE_ASSET_NAME], { cwd: paths.opencodeDir });
   const fs = await import('node:fs/promises');
   await fs.rm(zip, { force: true });
   return { present: true, version, note: 'downloaded from GitHub release' };
@@ -140,12 +157,29 @@ function ensureDefaultOpencodeModel(paths: IsolatedRuntimePaths): void {
 
 export async function ensureRuntimeBinaries(paths: IsolatedRuntimePaths): Promise<RuntimeStatus> {
   ensureDefaultOpencodeModel(paths);
+
+  // Bundled engines win: the overrides point straight at the install-dir
+  // binaries (see bundledEngines.ts) — no download, no first-launch copy,
+  // works offline. The version comes from the build manifest, so the startup
+  // path never spawns a `--version` on a ~250 MB exe.
+  const bundled = resolveBundledEngines();
+  if (bundled) {
+    const status: RuntimeStatus = {
+      claude: { present: true, version: bundled.claudeVersion, note: 'bundled' },
+      opencode: { present: true, version: bundled.opencodeVersion, note: 'bundled' },
+    };
+    writeVersionsFile(paths, status);
+    return status;
+  }
+
+  // Fallback (dev without prepared resources, or a corrupted install):
+  // existing download-on-first-boot flow into %LOCALAPPDATA%\AionUiAgent.
   const status: RuntimeStatus = {
     claude: existsSync(paths.claudeExe)
-      ? { present: true, version: await claudeVersion(paths.claudeExe) }
+      ? { present: true, version: await claudeVersion(paths.claudeExe, paths) }
       : { present: false },
     opencode: existsSync(paths.opencodeExe)
-      ? { present: true, version: await opencodeVersion(paths.opencodeExe) }
+      ? { present: true, version: await opencodeVersion(paths.opencodeExe, paths) }
       : { present: false },
   };
 
@@ -164,6 +198,11 @@ export async function ensureRuntimeBinaries(paths: IsolatedRuntimePaths): Promis
     }
   }
 
+  writeVersionsFile(paths, status);
+  return status;
+}
+
+function writeVersionsFile(paths: IsolatedRuntimePaths, status: RuntimeStatus): void {
   const versions = [
     `claude: ${status.claude.version ?? 'missing'}${status.claude.note ? ` (${status.claude.note})` : ''}`,
     `opencode: ${status.opencode.version ?? 'missing'}${status.opencode.note ? ` (${status.opencode.note})` : ''}`,
@@ -173,5 +212,4 @@ export async function ensureRuntimeBinaries(paths: IsolatedRuntimePaths): Promis
   } catch {
     // Non-fatal: the file is informational only.
   }
-  return status;
 }

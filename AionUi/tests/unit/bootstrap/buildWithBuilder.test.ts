@@ -272,6 +272,7 @@ childProcess.execSync = function mockedExecSync(command) {
     const tempDir = mkdtempSync(join(tmpdir(), 'aionui-build-test-'));
     const hookPath = join(tempDir, 'hook.cjs');
     const callsPath = join(tempDir, 'prepare-calls.json');
+    const engineCallsPath = join(tempDir, 'prepare-engine-calls.json');
     const outDir = resolve(repoRoot, 'out');
     const backupOutDir = resolve(repoRoot, `.tmp-out-backup-${process.pid}-${Date.now()}-${expectedArch}`);
 
@@ -293,6 +294,13 @@ function recordPrepareCall(options) {
   return { prepared: true, dir: 'mock-bundled-aioncore', sourceType: 'mock' };
 }
 
+function recordEngineCall(options) {
+  const callsPath = process.env.AIONUI_ENGINE_CALLS_FILE;
+  const calls = fs.existsSync(callsPath) ? JSON.parse(fs.readFileSync(callsPath, 'utf8')) : [];
+  calls.push(options ?? null);
+  fs.writeFileSync(callsPath, JSON.stringify(calls));
+}
+
 Module._load = function patchedLoad(request, parent, isMain) {
   if (request === './prepareAioncore' || request.endsWith('/prepareAioncore')) {
     return recordPrepareCall;
@@ -300,6 +308,10 @@ Module._load = function patchedLoad(request, parent, isMain) {
 
   if (request.endsWith('packages/shared-scripts/src/prepare-aioncore.js')) {
     return { prepareAioncore: recordPrepareCall };
+  }
+
+  if (request.endsWith('packages/shared-scripts/src/prepare-engine-runtimes.js')) {
+    return { prepareEngineRuntimes: recordEngineCall };
   }
 
   if (request === './resolveAioncoreVersion.js' || request.endsWith('/resolveAioncoreVersion.js')) {
@@ -351,6 +363,7 @@ childProcess.execSync = function mockedExecSync(command) {
         env: {
           ...process.env,
           AIONUI_PREPARE_CALLS_FILE: callsPath,
+          AIONUI_ENGINE_CALLS_FILE: engineCallsPath,
           NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require=${hookPath}`].filter(Boolean).join(' '),
         },
       });
@@ -369,6 +382,13 @@ childProcess.execSync = function mockedExecSync(command) {
 
       const calls = JSON.parse(readFileSync(callsPath, 'utf8')) as Array<{ arch?: string } | null>;
       expect(calls).toContainEqual(expect.objectContaining({ arch: expectedArch }));
+
+      // Engine runtimes are prepared for the same target as aioncore.
+      const engineCalls = JSON.parse(readFileSync(engineCallsPath, 'utf8')) as Array<{
+        platform?: string;
+        arch?: string;
+      }>;
+      expect(engineCalls).toContainEqual(expect.objectContaining({ arch: expectedArch }));
     } finally {
       rmSync(outDir, { recursive: true, force: true });
       if (movedExistingOut) {

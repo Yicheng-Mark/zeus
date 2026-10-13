@@ -5,12 +5,13 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { ANTHROPIC_NEUTRALIZED_KEYS, claudeEnv } from '@/process/isolatedRuntime/agentOverrides';
+import { ANTHROPIC_NEUTRALIZED_KEYS, claudeEnv, opencodeEnv } from '@/process/isolatedRuntime/agentOverrides';
 import {
   applyActiveProviderEnv,
   claudeProviderCandidates,
   type ProviderRow,
 } from '@/process/isolatedRuntime/modelProviders';
+import { isolatedClaudeSpawnEnv } from '@/process/isolatedRuntime/plugins';
 import { getIsolatedRuntimePaths } from '@/process/isolatedRuntime/paths';
 
 const paths = getIsolatedRuntimePaths();
@@ -33,6 +34,38 @@ describe('claudeEnv host-environment isolation', () => {
     for (const key of ANTHROPIC_NEUTRALIZED_KEYS) {
       expect(entry(key), `${key} must be present`).toBeDefined();
       expect(entry(key)?.value, `${key} must be empty so inherited values cannot leak`).toBe('');
+    }
+  });
+});
+
+describe('opencodeEnv config redirection', () => {
+  it('moves config, data and cache off the user-global XDG locations', () => {
+    const env = opencodeEnv(paths);
+    const value = (name: string) => env.find((e) => e.name === name)?.value;
+
+    expect(value('OPENCODE_CONFIG_DIR')).toBe(paths.opencodeConfigDir);
+    expect(value('XDG_CONFIG_HOME')).toBe(paths.opencodeXdgConfig);
+    expect(value('XDG_DATA_HOME')).toBe(paths.opencodeXdgData);
+    expect(value('XDG_CACHE_HOME')).toBe(paths.opencodeXdgCache);
+  });
+});
+
+describe('isolatedClaudeSpawnEnv', () => {
+  it('neutralizes host ANTHROPIC_* credentials even when the app was launched from a polluted shell', () => {
+    const previousApiKey = process.env.ANTHROPIC_API_KEY;
+    const previousBaseUrl = process.env.ANTHROPIC_BASE_URL;
+    process.env.ANTHROPIC_API_KEY = 'sk-host-leak';
+    process.env.ANTHROPIC_BASE_URL = 'https://host-relay.example';
+    try {
+      const env = isolatedClaudeSpawnEnv(paths);
+      expect(env.ANTHROPIC_API_KEY).toBe('');
+      expect(env.ANTHROPIC_BASE_URL).toBe('');
+      expect(env.CLAUDE_CONFIG_DIR).toBe(paths.claudeConfigDir);
+    } finally {
+      if (previousApiKey === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = previousApiKey;
+      if (previousBaseUrl === undefined) delete process.env.ANTHROPIC_BASE_URL;
+      else process.env.ANTHROPIC_BASE_URL = previousBaseUrl;
     }
   });
 });

@@ -271,6 +271,7 @@ ipcMain.handle('backend:recover-corrupted-database', async () => {
       try {
         const { getDataPath } = await import('./process/utils/utils');
         const { getSystemDir } = await import('./process/utils/initStorage');
+        const { aioncoreEngineEnv } = await import('./process/isolatedRuntime/engineEnv');
         const sysDir = getSystemDir();
         return await backendManager.start(
           getDataPath(),
@@ -279,6 +280,7 @@ ipcMain.handle('backend:recover-corrupted-database', async () => {
             cacheDir: sysDir.cacheDir,
             workDir: sysDir.workDir,
             logDir: sysDir.logDir,
+            engineEnv: aioncoreEngineEnv(),
           },
           {
             allowPendingOnHealthTimeout: false,
@@ -846,6 +848,7 @@ const handleAppReady = async (): Promise<void> => {
         });
         const { getDataPath } = await import('./process/utils/utils');
         const { getSystemDir } = await import('./process/utils/initStorage');
+        const { aioncoreEngineEnv } = await import('./process/isolatedRuntime/engineEnv');
         const sysDir = getSystemDir();
         return backendManager.start(
           getDataPath(),
@@ -854,6 +857,7 @@ const handleAppReady = async (): Promise<void> => {
             cacheDir: sysDir.cacheDir,
             workDir: sysDir.workDir,
             logDir: sysDir.logDir,
+            engineEnv: aioncoreEngineEnv(),
           },
           {
             allowPendingOnHealthTimeout: !(isWebUIMode || isResetPasswordMode),

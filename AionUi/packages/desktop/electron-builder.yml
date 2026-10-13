@@ -110,6 +110,11 @@ extraResources:
   # aioncore binary (pre-compiled per platform/arch, ships its own bun runtime)
   - from: resources/bundled-aioncore
     to: bundled-aioncore
+  # Agent engine runtimes (claude / opencode binaries, staged by
+  # packages/shared-scripts/src/prepare-engine-runtimes.js — bundled so the
+  # engines work out of the box with no first-launch download)
+  - from: resources/engines
+    to: engines
   - from: resources/hub
     to: hub
 win:

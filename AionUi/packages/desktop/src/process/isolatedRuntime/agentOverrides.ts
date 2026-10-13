@@ -21,6 +21,7 @@
  */
 
 import type { IsolatedRuntimePaths } from './paths';
+import { resolveBundledEngines } from './bundledEngines';
 
 export type AgentEnvEntry = { name: string; value: string };
 
@@ -85,7 +86,7 @@ export const ANTHROPIC_NEUTRALIZED_KEYS = [
   'CLAUDE_CODE_SUBAGENT_MODEL',
 ] as const;
 
-function opencodeEnv(paths: IsolatedRuntimePaths): AgentEnvEntry[] {
+export function opencodeEnv(paths: IsolatedRuntimePaths): AgentEnvEntry[] {
   return [
     // Config (opencode.json, plugins, agents) moves off ~/.config/opencode.
     { name: 'OPENCODE_CONFIG_DIR', value: paths.opencodeConfigDir },
@@ -117,9 +118,13 @@ export async function applyIsolatedAgentOverrides(
   const res = await api<AgentManagementRow[]>(backendPort, '/api/agents/management');
   const rows = res.data ?? [];
 
+  // Bundled engine binaries (shipped in the installer) win over the
+  // downloaded LOCALAPPDATA copies — the override points straight at the
+  // install-dir binary so the engines are usable the moment the app opens.
+  const bundled = resolveBundledEngines();
   const targets: Array<{ backend: string; exe: string; env: AgentEnvEntry[] }> = [
-    { backend: 'claude', exe: paths.claudeExe, env: claudeEnv(paths) },
-    { backend: 'opencode', exe: paths.opencodeExe, env: opencodeEnv(paths) },
+    { backend: 'claude', exe: bundled?.claudeExe ?? paths.claudeExe, env: claudeEnv(paths) },
+    { backend: 'opencode', exe: bundled?.opencodeExe ?? paths.opencodeExe, env: opencodeEnv(paths) },
   ];
 
   for (const target of targets) {

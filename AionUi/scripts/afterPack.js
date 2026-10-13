@@ -37,6 +37,32 @@ function verifyBundledResources(resourcesDir, electronPlatformName, targetArch) 
   console.log(`   ✓ Bundled resources verified for ${result.runtimeKey} (${result.checked.length} checks)`);
 }
 
+/** Verify the bundled agent engines (claude / opencode) staged by
+ *  prepare-engine-runtimes.js. Platforms without a bundle (manifest
+ *  binariesBundled=false) pass with an info line — the runtime falls back to
+ *  first-boot download for those. */
+function verifyBundledEngineRuntimes(resourcesDir, electronPlatformName, targetArch) {
+  const enginesDir = path.join(resourcesDir, 'engines', `${electronPlatformName}-${targetArch}`);
+  const manifestPath = path.join(enginesDir, 'manifest.json');
+  if (!fs.existsSync(manifestPath)) {
+    throw new Error(`bundled engines manifest missing: ${manifestPath}`);
+  }
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  if (manifest.runtimeKey !== `${electronPlatformName}-${targetArch}`) {
+    throw new Error(`bundled engines manifest runtimeKey mismatch: ${manifest.runtimeKey}`);
+  }
+  if (!manifest.binariesBundled) {
+    console.log(`   ℹ️  Engines not bundled for ${manifest.runtimeKey} (runtime download fallback)`);
+    return;
+  }
+  for (const rel of ['claude/claude.exe', 'opencode/opencode.exe']) {
+    if (!fs.existsSync(path.join(enginesDir, rel))) {
+      throw new Error(`bundled engine missing: ${path.join(enginesDir, rel)}`);
+    }
+  }
+  console.log(`   ✓ Bundled engines verified (${manifest.claude.version} / ${manifest.opencode.version})`);
+}
+
 module.exports = async function afterPack(context) {
   const { arch, electronPlatformName, appOutDir, packager } = context;
   const targetArch = normalizeArch(typeof arch === 'string' ? arch : Arch[arch] || process.arch);
@@ -73,6 +99,7 @@ module.exports = async function afterPack(context) {
     }
 
     verifyBundledResources(resourcesDir, electronPlatformName, targetArch);
+    verifyBundledEngineRuntimes(resourcesDir, electronPlatformName, targetArch);
   } else {
     throw new Error(`resources directory not found: ${resourcesDir}`);
   }

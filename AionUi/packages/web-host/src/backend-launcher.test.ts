@@ -241,6 +241,23 @@ describe('buildSpawnEnv', () => {
     expect(env.PATH).toBe(process.env.PATH); // inherits
   });
 
+  it('layers engineEnv (engine isolation paths) on top when provided', () => {
+    const env = buildSpawnEnv({
+      cacheDir: '/c',
+      workDir: '/w',
+      logDir: '/l',
+      engineEnv: { AIONUI_ENGINE_CLAUDE_EXE: '/engines/claude.exe', AIONUI_ENGINE_CLAUDE_CONFIG_DIR: '/isolated/claude' },
+    });
+    expect(env.AIONUI_ENGINE_CLAUDE_EXE).toBe('/engines/claude.exe');
+    expect(env.AIONUI_ENGINE_CLAUDE_CONFIG_DIR).toBe('/isolated/claude');
+    expect(env.AIONUI_CACHE_DIR).toBe('/c');
+  });
+
+  it('adds no engine keys when engineEnv is omitted', () => {
+    const env = buildSpawnEnv({ cacheDir: '/c', workDir: '/w', logDir: '/l' });
+    expect(Object.keys(env).filter((key) => key.startsWith('AIONUI_ENGINE_'))).toEqual([]);
+  });
+
   it('strips PREBUILDS_ONLY so agent CLIs spawned under aioncore can load their build/Release natives (#4070)', () => {
     const prev = process.env.PREBUILDS_ONLY;
     process.env.PREBUILDS_ONLY = '1';

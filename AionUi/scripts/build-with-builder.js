@@ -822,6 +822,11 @@ try {
     version: resolveAioncoreVersion(projectRoot),
   });
 
+  // 5b. Prepare bundled engine runtimes (claude / opencode binaries so the
+  // engines work out of the box with no first-launch download)
+  const { prepareEngineRuntimes } = require('../packages/shared-scripts/src/prepare-engine-runtimes.js');
+  prepareEngineRuntimes({ projectRoot, platform: process.platform, arch: targetArch });
+
   // 6. Prepare hub resources (index.json + extension zips for offline fallback)
   execSync('node scripts/prepareHubResources.js', { stdio: 'inherit', env: process.env });
 

@@ -25,6 +25,8 @@ import { existsSync } from 'node:fs';
 import { cp, mkdir, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { IsolatedRuntimePaths } from './paths';
+import { resolveBundledEngines } from './bundledEngines';
+import { claudeEnv } from './agentOverrides';
 
 /** docx/xlsx/pptx/pdf authoring from anthropics/skills (source-available). */
 export const DOCUMENT_SKILLS_PLUGIN = 'document-skills@anthropic-agent-skills';
@@ -39,15 +41,22 @@ export type PluginInstallReport = {
   log: string[];
 };
 
+/** The claude binary this module spawns: bundled first, downloaded copy second. */
+function isolatedClaudeExe(paths: IsolatedRuntimePaths): string {
+  return resolveBundledEngines()?.claudeExe ?? paths.claudeExe;
+}
+
+/** Spawn env for the isolated claude: same isolation baseline as a session
+ *  spawn (CLAUDE_CONFIG_DIR redirect + ANTHROPIC_* neutralization), so plugin
+ *  installs never borrow host credentials. */
+export function isolatedClaudeSpawnEnv(paths: IsolatedRuntimePaths): NodeJS.ProcessEnv {
+  return { ...process.env, ...Object.fromEntries(claudeEnv(paths).map((entry) => [entry.name, entry.value])) };
+}
+
 function runIsolatedClaude(paths: IsolatedRuntimePaths, args: string[]): Promise<string> {
   return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn(paths.claudeExe, args, {
-      env: {
-        ...process.env,
-        CLAUDE_CONFIG_DIR: paths.claudeConfigDir,
-        DISABLE_AUTOUPDATER: '1',
-        DISABLE_TELEMETRY: '1',
-      },
+    const child = spawn(isolatedClaudeExe(paths), args, {
+      env: isolatedClaudeSpawnEnv(paths),
       windowsHide: true,
     });
     let out = '';
@@ -101,7 +110,7 @@ export async function syncDocumentSkillsToOpenCode(paths: IsolatedRuntimePaths):
 
 export async function installIsolatedPlugins(paths: IsolatedRuntimePaths): Promise<PluginInstallReport> {
   const log: string[] = [];
-  if (!existsSync(paths.claudeExe)) {
+  if (!existsSync(isolatedClaudeExe(paths))) {
     return { ok: false, log: ['isolated claude.exe not found — let the runtime bootstrap finish first'] };
   }
 

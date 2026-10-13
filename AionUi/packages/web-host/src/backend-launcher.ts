@@ -81,6 +81,12 @@ export type BackendDirConfig = {
   cacheDir: string;
   workDir: string;
   logDir: string;
+  /**
+   * Extra env merged on top of the AIONUI_* dirs (e.g. the engine isolation
+   * paths from isolatedRuntime/engineEnv — AIONUI_ENGINE_*_EXE / *_CONFIG_DIR
+   * — so backend MCP adapters address the app-managed engines).
+   */
+  engineEnv?: Record<string, string>;
 };
 
 export type BackendLaunchOptions = {
@@ -234,6 +240,7 @@ export function buildSpawnEnv(dirs?: BackendDirConfig): NodeJS.ProcessEnv {
     AIONUI_CACHE_DIR: dirs.cacheDir,
     AIONUI_WORK_DIR: dirs.workDir,
     AIONUI_LOG_DIR: dirs.logDir,
+    ...dirs.engineEnv,
   };
 }
 
