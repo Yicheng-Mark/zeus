@@ -3,7 +3,6 @@
     "title": "یکپارچگی MCP",
     "description": "مدیریت سرورها و ابزارهای Model Context Protocol"
   },
-  "label": "MCP",
   "servers": "سرورها",
   "tools": "ابزارها",
   "executionHistory": "تاریخچه اجرا",
@@ -25,10 +24,8 @@
   "result": "نتیجه",
   "noParameters": "این ابزار پارامتری ندارد",
   "noServers": "سرور MCP پیکربندی نشده است",
-  "noServersFound": "سروری مطابق با معیارهای شما پیدا نشد",
   "noTools": "ابزاری در دسترس نیست",
   "noExecutions": "تاریخچه اجرایی وجود ندارد",
-  "searchServers": "جستجوی سرورها...",
   "searchTools": "جستجوی ابزارها...",
   "filterByStatus": "فیلتر بر اساس وضعیت",
   "transport": "انتقال",

@@ -43,6 +43,7 @@ impl ProviderService {
         let model_health_json = serialize_opt(&req.model_health, "model_health")?;
         let model_settings_json = serialize_json(&req.model_settings, "model_settings")?;
         let bedrock_json = serialize_opt(&req.bedrock_config, "bedrock_config")?;
+        let agent_scopes_json = serialize_opt(&req.agent_scopes, "agent_scopes")?;
         let trimmed_id = req.id.as_deref().map(str::trim);
 
         let params = CreateProviderParams {
@@ -62,6 +63,7 @@ impl ProviderService {
             model_settings: &model_settings_json,
             bedrock_config: bedrock_json.as_deref(),
             is_full_url: req.is_full_url,
+            agent_scopes: agent_scopes_json.as_deref(),
         };
 
         let row = self.repo.create(params).await?;
@@ -89,6 +91,7 @@ impl ProviderService {
         let model_health_json = serialize_opt(&req.model_health, "model_health")?;
         let model_settings_json = serialize_opt(&req.model_settings, "model_settings")?;
         let bedrock_json = serialize_opt(&req.bedrock_config, "bedrock_config")?;
+        let agent_scopes_json = serialize_opt(&req.agent_scopes, "agent_scopes")?;
 
         let params = UpdateProviderParams {
             platform: req.platform.as_deref(),
@@ -105,6 +108,7 @@ impl ProviderService {
             model_settings: model_settings_json.as_deref(),
             bedrock_config: bedrock_json.as_ref().map(|s| Some(s.as_str())),
             is_full_url: req.is_full_url,
+            agent_scopes: agent_scopes_json.as_ref().map(|s| Some(s.as_str())),
         };
 
         let row = self.repo.update(user_id, id, params).await?;
@@ -158,6 +162,7 @@ impl ProviderService {
         let model_settings = serde_json::from_str(&row.model_settings)
             .map_err(|e| SystemError::Internal(format!("Failed to parse model_settings JSON: {e}")))?;
         let bedrock_config = deserialize_opt(&row.bedrock_config, "bedrock_config")?;
+        let agent_scopes = deserialize_opt(&row.agent_scopes, "agent_scopes")?.unwrap_or_default();
 
         Ok(ProviderResponse {
             id: row.id,
@@ -175,6 +180,7 @@ impl ProviderService {
             model_settings,
             bedrock_config,
             is_full_url: row.is_full_url,
+            agent_scopes,
             created_at: row.created_at,
             updated_at: row.updated_at,
         })
@@ -223,6 +229,9 @@ fn validate_create_request(req: &CreateProviderRequest) -> Result<(), SystemErro
     if req.name.trim().is_empty() {
         return Err(SystemError::BadRequest("name is required".into()));
     }
+    if let Some(ref scopes) = req.agent_scopes {
+        validate_agent_scopes(scopes)?;
+    }
     // Bedrock auths via bedrock_config (IAM profile / static keys) rather than
     // an HTTP endpoint + bearer key, so baseUrl and apiKey may be empty.
     if req.platform == "bedrock" {
@@ -238,6 +247,20 @@ fn validate_create_request(req: &CreateProviderRequest) -> Result<(), SystemErro
         validate_base_url(&req.base_url)?;
         if req.api_key.trim().is_empty() {
             return Err(SystemError::BadRequest("apiKey is required".into()));
+        }
+    }
+    Ok(())
+}
+
+/// Agent backends a provider can be scoped to (Zeus's fixed three-engine catalog).
+const KNOWN_AGENT_BACKENDS: &[&str] = &["aionrs", "claude", "opencode"];
+
+fn validate_agent_scopes(scopes: &[String]) -> Result<(), SystemError> {
+    for scope in scopes {
+        if !KNOWN_AGENT_BACKENDS.contains(&scope.as_str()) {
+            return Err(SystemError::BadRequest(format!(
+                "agent scope '{scope}' is not a known backend (expected one of: aionrs, claude, opencode)"
+            )));
         }
     }
     Ok(())
@@ -277,6 +300,9 @@ fn validate_update_request(req: &UpdateProviderRequest) -> Result<(), SystemErro
         && name.trim().is_empty()
     {
         return Err(SystemError::BadRequest("name cannot be empty".into()));
+    }
+    if let Some(ref scopes) = req.agent_scopes {
+        validate_agent_scopes(scopes)?;
     }
     if let Some(ref url) = req.base_url
         && !url.trim().is_empty()
@@ -341,6 +367,7 @@ mod tests {
             model_settings: HashMap::new(),
             bedrock_config: None,
             is_full_url: false,
+            agent_scopes: None,
         }
     }
 
@@ -607,6 +634,71 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn create_with_agent_scopes_persists_and_roundtrips() {
+        let svc = setup().await;
+        let req = CreateProviderRequest {
+            agent_scopes: Some(vec!["claude".into(), "opencode".into()]),
+            ..sample_create_request()
+        };
+        let created = svc.create(TEST_USER_ID, req).await.unwrap();
+        assert_eq!(created.agent_scopes, vec!["claude".to_string(), "opencode".to_string()]);
+
+        let all = svc.list(TEST_USER_ID).await.unwrap();
+        assert_eq!(all[0].agent_scopes, vec!["claude".to_string(), "opencode".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn create_without_agent_scopes_defaults_to_empty() {
+        let svc = setup().await;
+        let created = svc.create(TEST_USER_ID, sample_create_request()).await.unwrap();
+        assert!(created.agent_scopes.is_empty(), "no scopes = visible to every agent");
+    }
+
+    #[tokio::test]
+    async fn create_rejects_unknown_agent_scope() {
+        let svc = setup().await;
+        let req = CreateProviderRequest {
+            agent_scopes: Some(vec!["gemini".into()]),
+            ..sample_create_request()
+        };
+        let err = svc.create(TEST_USER_ID, req).await.unwrap_err();
+        assert!(matches!(err, SystemError::BadRequest(_)));
+    }
+
+    #[tokio::test]
+    async fn update_agent_scopes() {
+        let svc = setup().await;
+        let created = svc.create(TEST_USER_ID, sample_create_request()).await.unwrap();
+
+        let updated = svc
+            .update(
+                TEST_USER_ID,
+                &created.id,
+                UpdateProviderRequest {
+                    agent_scopes: Some(vec!["aionrs".into()]),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(updated.agent_scopes, vec!["aionrs".to_string()]);
+
+        // And a partial update that omits scopes leaves them untouched.
+        let renamed = svc
+            .update(
+                TEST_USER_ID,
+                &created.id,
+                UpdateProviderRequest {
+                    name: Some("Renamed".into()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(renamed.agent_scopes, vec!["aionrs".to_string()]);
+    }
+
+    #[tokio::test]
     async fn provider_response_api_key_plaintext_matches_input() {
         // Replaces the masking test: api_key on the response is the
         // encrypted-then-decrypted plaintext (equal to the input).
@@ -742,6 +834,7 @@ mod undecryptable_row_tests {
                     model_settings: HashMap::new(),
                     bedrock_config: None,
                     is_full_url: false,
+                    agent_scopes: None,
                 },
             )
             .await
@@ -765,6 +858,7 @@ mod undecryptable_row_tests {
                     model_settings: HashMap::new(),
                     bedrock_config: None,
                     is_full_url: false,
+                    agent_scopes: None,
                 },
             )
             .await

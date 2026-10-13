@@ -200,7 +200,5 @@
     "minute_short": "分",
     "second_short": "秒"
   },
-  "selectedCount": "已選 {{count}}",
-  "selectedSkills": "已選技能",
   "aiAssistant": "AI 助手"
 }

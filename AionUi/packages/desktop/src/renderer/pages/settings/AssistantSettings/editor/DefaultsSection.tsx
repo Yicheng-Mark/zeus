@@ -270,7 +270,7 @@ const DefaultsSection: React.FC<DefaultsSectionProps> = ({
               <Button
                 type='text'
                 size='mini'
-                onClick={() => navigate('/settings/skills')}
+                onClick={() => navigate('/skills')}
                 data-testid='btn-open-skills-settings'
                 className='!h-auto !px-0 !text-primary-6'
               >
@@ -387,7 +387,7 @@ const DefaultsSection: React.FC<DefaultsSectionProps> = ({
             <Button
               type='text'
               size='mini'
-              onClick={() => navigate('/settings/tools')}
+              onClick={() => navigate('/connectors')}
               data-testid='btn-open-mcp-settings'
               className='!h-auto !px-0 !text-primary-6'
             >

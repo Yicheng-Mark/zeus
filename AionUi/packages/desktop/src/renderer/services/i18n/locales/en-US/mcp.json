@@ -3,7 +3,6 @@
     "title": "MCP Integration",
     "description": "Manage Model Context Protocol servers and tools"
   },
-  "label": "MCP",
   "servers": "Servers",
   "tools": "Tools",
   "executionHistory": "Execution History",
@@ -25,10 +24,8 @@
   "result": "Result",
   "noParameters": "This tool has no parameters",
   "noServers": "No MCP servers configured",
-  "noServersFound": "No servers found matching your criteria",
   "noTools": "No tools available",
   "noExecutions": "No execution history",
-  "searchServers": "Search servers...",
   "searchTools": "Search tools...",
   "filterByStatus": "Filter by status",
   "transport": "Transport",

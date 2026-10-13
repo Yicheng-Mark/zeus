@@ -5,13 +5,19 @@
  */
 
 import React from 'react';
-import AgentModalContent from '@/renderer/components/settings/SettingsModal/contents/AgentModalContent';
+import LocalAgents from './LocalAgents';
+import ModelModalContent from '@/renderer/components/settings/SettingsModal/contents/ModelModalContent';
 import SettingsPageWrapper from '../components/SettingsPageWrapper';
 
+/** Single "Agents & Models" settings page — agent runtime management on top,
+ * LLM provider configuration below (formerly the separate Model tab). */
 const AgentSettings: React.FC = () => {
   return (
-    <SettingsPageWrapper>
-      <AgentModalContent />
+    <SettingsPageWrapper contentClassName='max-w-1100px'>
+      <div className='flex flex-col gap-16px'>
+        <LocalAgents />
+        <ModelModalContent />
+      </div>
     </SettingsPageWrapper>
   );
 };

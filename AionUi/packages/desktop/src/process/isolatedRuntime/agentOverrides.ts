@@ -43,7 +43,7 @@ type ApiResponse<T> = {
   message?: string;
 };
 
-function claudeEnv(paths: IsolatedRuntimePaths): AgentEnvEntry[] {
+export function claudeEnv(paths: IsolatedRuntimePaths): AgentEnvEntry[] {
   return [
     { name: 'CLAUDE_CONFIG_DIR', value: paths.claudeConfigDir },
     // Keep the app-internal copy from self-updating out from under the user's

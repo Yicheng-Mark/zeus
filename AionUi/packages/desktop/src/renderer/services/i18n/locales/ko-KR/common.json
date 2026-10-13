@@ -200,7 +200,5 @@
     "minute_short": "분",
     "second_short": "초"
   },
-  "selectedCount": "선택됨 {{count}}",
-  "selectedSkills": "선택된 스킬",
   "aiAssistant": "AI 어시스턴트"
 }

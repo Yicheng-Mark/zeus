@@ -5,38 +5,33 @@
  */
 
 import { ipcBridge } from '@/common';
-import { buildGuidSlashCommands } from '@/common/chat/slash/guidSlashCommands';
+import { mergeSlashCommands } from '@/common/chat/slash/mergeSlashCommands';
 import type { SlashCommandItem } from '@/common/chat/slash/types';
-import type { IMcpServer, TProviderWithModel } from '@/common/config/storage';
+import type { TProviderWithModel } from '@/common/config/storage';
 import { resolveLocaleKey } from '@/common/utils';
 import type { AssistantDetail } from '@/common/types/agent/assistantTypes';
 
 import { useInputFocusRing } from '@/renderer/hooks/chat/useInputFocusRing';
 import { appendPromptToDraft } from '@/renderer/hooks/chat/useSendBoxDraft';
 import { getFuzzyMatchIndices, useSlashCommandController } from '@/renderer/hooks/chat/useSlashCommandController';
-import { openExternalUrl } from '@/renderer/utils/platform';
 import SlashCommandMenu, { type SlashCommandMenuItem } from '@/renderer/components/chat/SlashCommandMenu';
 import AssistantSelectionArea from './components/AssistantSelectionArea';
 import GuidActionRow from './components/GuidActionRow';
 import GuidInputCard from './components/GuidInputCard';
 import GuidModelSelector from './components/GuidModelSelector';
-import QuickActionButtons from './components/QuickActionButtons';
-import FeedbackReportModal from '@/renderer/components/settings/SettingsModal/contents/FeedbackReportModal';
 import { useGuidAssistantSelection } from './hooks/useGuidAssistantSelection';
 import { useGuidInput } from './hooks/useGuidInput';
 import { useGuidModelSelection } from './hooks/useGuidModelSelection';
 import { useGuidSend } from './hooks/useGuidSend';
 import { useTypewriterPlaceholder } from './hooks/useTypewriterPlaceholder';
-import { ensureBackendMcpCatalog } from '@/renderer/hooks/mcp/catalog';
 import { resolveGuidAssistantDefaults } from './utils/assistantDefaults';
 import SpeechInputButton from '@/renderer/components/chat/SpeechInputButton';
 import { chatFileRefPath, uploadFileRef } from '@/common/types/chatFile';
 import { useOpenFileSelector } from '@/renderer/hooks/file/useOpenFileSelector';
 import { appendSpeechTranscript } from '@/renderer/hooks/system/useSpeechInput';
 import { useLiveTranscriptInsertion } from '@/renderer/hooks/system/useLiveTranscriptInsertion';
-import { ArrowRightUp } from '@icon-park/react';
-import { Button, ConfigProvider } from '@arco-design/web-react';
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { ConfigProvider } from '@arco-design/web-react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 import useSWR from 'swr';
@@ -61,59 +56,6 @@ const GuidPage: React.FC = () => {
   const { activeBorderColor, inactiveBorderColor, activeShadow } = useInputFocusRing();
 
   const localeKey = resolveLocaleKey(i18n.language);
-  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
-
-  // Open external link
-  const openLink = useCallback(async (url: string) => {
-    try {
-      await openExternalUrl(url);
-    } catch (error) {
-      console.error('Failed to open external link:', error);
-    }
-  }, []);
-
-  // --- Skills state ---
-  // Skill metadata comes from the database-backed catalog. Built-in auto-inject
-  // skills default checked; the rest are opt-in per conversation or pre-checked
-  // by assistant defaults.
-  const [allSkills, setAllSkills] = useState<Array<{ name: string; description: string; isAuto: boolean }>>([]);
-  const [guidDisabledBuiltinSkills, setGuidDisabledBuiltinSkills] = useState<string[] | undefined>(undefined);
-  const [guidEnabledSkills, setGuidEnabledSkills] = useState<string[] | undefined>(undefined);
-  const [availableMcpServers, setAvailableMcpServers] = useState<IMcpServer[]>([]);
-  const [guidSelectedMcpServerIds, setGuidSelectedMcpServerIds] = useState<string[] | undefined>(undefined);
-
-  useEffect(() => {
-    ipcBridge.fs.listAvailableSkills
-      .invoke()
-      .then((availableSkills) => {
-        setAllSkills(
-          availableSkills.map((s) => ({
-            name: s.name,
-            description: s.description,
-            isAuto: s.source === 'builtin' && s.is_auto_inject,
-          }))
-        );
-      })
-      .catch(() => setAllSkills([]));
-  }, []);
-
-  useEffect(() => {
-    void ensureBackendMcpCatalog()
-      .then(({ allServers }) => {
-        setAvailableMcpServers(allServers);
-      })
-      .catch((error) => {
-        console.error('[GuidPage] Failed to load MCP catalog:', error);
-        setAvailableMcpServers([]);
-      });
-  }, []);
-
-  const handleToggleMcpServer = useCallback((serverId: string) => {
-    setGuidSelectedMcpServerIds((prev) => {
-      const current = prev ?? [];
-      return current.includes(serverId) ? current.filter((id) => id !== serverId) : [...current, serverId];
-    });
-  }, []);
 
   // --- Hooks ---
   // Only aionrs uses this provider-based model picker now (Gemini runs as a
@@ -154,53 +96,6 @@ const GuidPage: React.FC = () => {
         .invoke({ id: selectedAssistantId!, locale: localeKey })
         .catch((_error: unknown): AssistantDetail | null => null)
   );
-  const resolvedAssistantDefaults = useMemo(
-    () => resolveGuidAssistantDefaults(selectedAssistantDetail),
-    [selectedAssistantDetail]
-  );
-  const selectedSkillNames = useMemo(() => {
-    const disabledBuiltinSkillSet = new Set(
-      guidDisabledBuiltinSkills ?? resolvedAssistantDefaults.disabledBuiltinSkillIds
-    );
-    const enabledSkillSet = new Set(guidEnabledSkills ?? resolvedAssistantDefaults.skillIds);
-
-    return allSkills
-      .filter((skill) => (skill.isAuto ? !disabledBuiltinSkillSet.has(skill.name) : enabledSkillSet.has(skill.name)))
-      .map((skill) => skill.name);
-  }, [
-    allSkills,
-    guidDisabledBuiltinSkills,
-    guidEnabledSkills,
-    resolvedAssistantDefaults.disabledBuiltinSkillIds,
-    resolvedAssistantDefaults.skillIds,
-  ]);
-  // Declared AFTER resolvedAssistantDefaults: the deps array below reads it at
-  // call time, so an earlier position would throw a TDZ ReferenceError during
-  // the first render (white screen).
-  const handleToggleSkill = useCallback(
-    (skillName: string, isAuto: boolean) => {
-      if (isAuto) {
-        setGuidDisabledBuiltinSkills((prev) => {
-          const list = prev ?? [];
-          return list.includes(skillName) ? list.filter((s) => s !== skillName) : [...list, skillName];
-        });
-      } else {
-        setGuidEnabledSkills((prev) => {
-          // Before the first explicit toggle the override is unset and the
-          // assistant's preset defaults travel with the send. Seed from those
-          // defaults so the first toggle adjusts them instead of discarding
-          // the whole preset (mode presets hold 60-170 skills).
-          const list = prev ?? resolvedAssistantDefaults.skillIds;
-          return list.includes(skillName) ? list.filter((s) => s !== skillName) : [...list, skillName];
-        });
-      }
-    },
-    [resolvedAssistantDefaults.skillIds]
-  );
-  const skillDescriptionByName = useMemo(
-    () => new Map(allSkills.map((skill) => [skill.name, skill.description])),
-    [allSkills]
-  );
   const guidBuiltinSlashCommands = useMemo<SlashCommandItem[]>(
     () => [
       {
@@ -212,22 +107,12 @@ const GuidPage: React.FC = () => {
     ],
     [t]
   );
+  // Skill-driven template commands are gone with per-conversation skill
+  // selection (agents carry fixed per-mode presets now); only the builtin and
+  // agent-supplied commands remain.
   const guidSlashCommands = useMemo(
-    () =>
-      buildGuidSlashCommands({
-        builtinCommands: guidBuiltinSlashCommands,
-        agentCommands: agentSelection.currentAgentAvailableCommands,
-        selectedSkills: selectedSkillNames,
-        descriptionByName: skillDescriptionByName,
-        skillFallbackDescription: t('conversation.skills.slashHint', { defaultValue: 'Skill' }),
-      }),
-    [
-      agentSelection.currentAgentAvailableCommands,
-      guidBuiltinSlashCommands,
-      selectedSkillNames,
-      skillDescriptionByName,
-      t,
-    ]
+    () => mergeSlashCommands(guidBuiltinSlashCommands, agentSelection.currentAgentAvailableCommands ?? [], []),
+    [agentSelection.currentAgentAvailableCommands, guidBuiltinSlashCommands]
   );
   const slashController = useSlashCommandController({
     input: guidInput.input,
@@ -273,13 +158,6 @@ const GuidPage: React.FC = () => {
     selectedThoughtLevelValue: agentSelection.selectedThoughtLevelValue,
     current_model: modelSelection.current_model,
 
-    guidDisabledBuiltinSkills,
-    guidEnabledSkills,
-    assistantDefaultSkillIds: resolvedAssistantDefaults.skillIds,
-    assistantDefaultDisabledBuiltinSkillIds: resolvedAssistantDefaults.disabledBuiltinSkillIds,
-    availableMcpServers,
-    selectedMcpServerIds: guidSelectedMcpServerIds,
-    assistantDefaultMcpIds: resolvedAssistantDefaults.mcpIds,
     isGoogleAuth: modelSelection.isGoogleAuth,
 
     // Mention state reset
@@ -329,43 +207,6 @@ const GuidPage: React.FC = () => {
 
   // Typewriter placeholder
   const typewriterPlaceholder = useTypewriterPlaceholder(t('conversation.welcome.placeholder'));
-  const selectedAssistantRecord = useMemo(() => {
-    if (!selectedAssistantId) return undefined;
-    const selectedId = agentSelection.selectedAssistantId;
-    const strippedId = selectedId.replace(/^builtin-/, '');
-    const candidates = new Set([selectedId, `builtin-${strippedId}`, strippedId]);
-    return agentSelection.assistants.find((item) => candidates.has(item.id));
-  }, [agentSelection.assistants, selectedAssistantId, agentSelection.selectedAssistantId]);
-  const selectedAssistantPrompts = useMemo(() => {
-    if (!selectedAssistantId) return [];
-    const resolvedPrompts =
-      selectedAssistantDetail?.prompts.recommended_i18n?.[localeKey] ||
-      selectedAssistantDetail?.prompts.recommended_i18n?.['en-US'] ||
-      selectedAssistantDetail?.prompts.recommended ||
-      selectedAssistantRecord?.prompts_i18n?.[localeKey] ||
-      selectedAssistantRecord?.prompts_i18n?.['en-US'] ||
-      selectedAssistantRecord?.prompts ||
-      [];
-
-    if (resolvedPrompts.length > 0) {
-      return resolvedPrompts;
-    }
-
-    return [t('guid.defaultPrompts.understand'), t('guid.defaultPrompts.cleanup'), t('guid.defaultPrompts.create')];
-  }, [localeKey, selectedAssistantDetail, selectedAssistantRecord, selectedAssistantId, t]);
-
-  // Sync disabledBuiltinSkills + enabledSkills from assistant detail defaults.
-  useEffect(() => {
-    if (!selectedAssistantId || !selectedAssistantDetail) {
-      setGuidDisabledBuiltinSkills(undefined);
-      setGuidEnabledSkills(undefined);
-      return;
-    }
-
-    const resolvedDefaults = resolveGuidAssistantDefaults(selectedAssistantDetail);
-    setGuidDisabledBuiltinSkills(resolvedDefaults.disabledBuiltinSkillIds);
-    setGuidEnabledSkills(resolvedDefaults.skillIds);
-  }, [selectedAssistantDetail, selectedAssistantId]);
 
   const appliedAssistantDefaultsKeyRef = useRef<string | null>(null);
   const manualModelSelectionAssistantRef = useRef<string | null>(null);
@@ -386,7 +227,6 @@ const GuidPage: React.FC = () => {
         last_model_id: selectedAssistantDetail.preferences.last_model_id,
         last_permission_value: selectedAssistantDetail.preferences.last_permission_value,
         last_thought_level_value: selectedAssistantDetail.preferences.last_thought_level_value,
-        last_mcp_ids: selectedAssistantDetail.preferences.last_mcp_ids,
       },
       availableModels: {
         acp: agentSelection.currentAcpCachedModelInfo?.available_models.map((model) => model.id) ?? [],
@@ -428,8 +268,12 @@ const GuidPage: React.FC = () => {
         }
       } else if (shouldApplyDefaultModel && resolvedDefaults.modelId) {
         const availableModelIds = new Set(agentSelection.currentAcpCachedModelInfo?.available_models.map((m) => m.id));
+        // `zeus-<providerId>/<model>` ids come from providers injected into the
+        // CLI runtime config; they are valid even though the runtime catalog
+        // (captured at probe time) does not know them.
+        const isInjectedProviderModel = resolvedDefaults.modelId.startsWith('zeus-');
         agentSelection.setSelectedAcpModel(
-          availableModelIds.size === 0 || availableModelIds.has(resolvedDefaults.modelId)
+          availableModelIds.size === 0 || availableModelIds.has(resolvedDefaults.modelId) || isInjectedProviderModel
             ? resolvedDefaults.modelId
             : null,
           { persistPreference: false }
@@ -463,7 +307,6 @@ const GuidPage: React.FC = () => {
           agentSelection.setSelectedThoughtLevelValue(fallbackThoughtLevel, { persistPreference: false });
         }
       }
-      setGuidSelectedMcpServerIds(resolvedDefaults.mcpIds);
     };
 
     void applyAssistantDefaults().catch((error) => {
@@ -640,13 +483,6 @@ const GuidPage: React.FC = () => {
       selectedMode={agentSelection.selectedMode}
       dynamicModes={agentSelection.currentAgentModeOptions}
       onModeSelect={setGuidSelectedMode}
-      allSkills={allSkills}
-      disabledBuiltinSkills={guidDisabledBuiltinSkills ?? []}
-      enabledSkills={guidEnabledSkills ?? resolvedAssistantDefaults.skillIds}
-      onToggleSkill={handleToggleSkill}
-      mcpServers={availableMcpServers}
-      selectedMcpServerIds={guidSelectedMcpServerIds ?? []}
-      onToggleMcpServer={handleToggleMcpServer}
       speechInputNode={
         <SpeechInputButton onLiveTranscript={handleLiveTranscript} onTranscript={handleSpeechTranscript} />
       }
@@ -711,43 +547,7 @@ const GuidPage: React.FC = () => {
             onSelectWorkspace={(dir) => guidInput.setDir(dir)}
             onClearWorkspace={() => guidInput.setDir('')}
           />
-
-          {selectedAssistantPrompts.length > 0 ? (
-            <div className='mt-18px w-full animate-fade-in ps-20px'>
-              <div className={`${styles.assistantPromptHint} mb-10px text-start`}>
-                {t('guid.promptExamplesHint', { defaultValue: 'Try these example prompts:' })}
-              </div>
-              <div className='flex flex-col gap-9px'>
-                {selectedAssistantPrompts.map((prompt, index) => (
-                  <Button
-                    key={`${index}-${prompt}`}
-                    type='text'
-                    className='group !h-auto !w-full !border-none !bg-transparent !px-0 !py-6px !text-start !text-12.5px !text-t-secondary !whitespace-normal !break-words transition-colors hover:!bg-transparent hover:!text-t-primary'
-                    onClick={() => {
-                      guidInput.setInput(prompt);
-                      guidInput.handleTextareaFocus();
-                    }}
-                  >
-                    <span>{prompt}</span>
-                    <ArrowRightUp
-                      theme='outline'
-                      size='13'
-                      className='ms-6px inline-flex flex-shrink-0 align-[-1px] text-t-primary opacity-0 transition-opacity group-hover:opacity-100'
-                    />
-                  </Button>
-                ))}
-              </div>
-            </div>
-          ) : null}
         </div>
-
-        <QuickActionButtons
-          onOpenLink={openLink}
-          onOpenBugReport={() => setShowFeedbackModal(true)}
-          inactiveBorderColor={inactiveBorderColor}
-          activeShadow={activeShadow}
-        />
-        <FeedbackReportModal visible={showFeedbackModal} onCancel={() => setShowFeedbackModal(false)} />
       </div>
     </ConfigProvider>
   );

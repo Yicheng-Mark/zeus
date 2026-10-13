@@ -3,7 +3,6 @@
     "title": "MCP 整合",
     "description": "管理模型上下文協議伺服器和工具"
   },
-  "label": "MCP",
   "servers": "伺服器",
   "tools": "工具",
   "executionHistory": "執行歷程",
@@ -25,10 +24,8 @@
   "result": "結果",
   "noParameters": "此工具沒有參數",
   "noServers": "未配置 MCP 伺服器",
-  "noServersFound": "未找到符合條件的伺服器",
   "noTools": "無可用工具",
   "noExecutions": "無執行歷程",
-  "searchServers": "搜尋伺服器...",
   "searchTools": "搜尋工具...",
   "filterByStatus": "按狀態篩選",
   "transport": "傳輸方式",

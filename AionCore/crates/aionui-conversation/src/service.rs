@@ -1411,7 +1411,11 @@ impl ConversationService {
                     ConversationError::internal(format!("Failed to serialize MCP status snapshot: {e}"))
                 })?,
             );
-            if selected_session_mcp_servers.is_some() {
+            // Persist session servers whenever the snapshot carries any: the
+            // request's explicit selection OR builtin rows converted from the
+            // assistant's fixed preset (they ride this channel, not the id
+            // list).
+            if selected_session_mcp_servers.is_some() || !mcp_snapshot.session_mcp_servers.is_empty() {
                 obj.insert(
                     "session_mcp_servers".to_owned(),
                     serde_json::to_value(&mcp_snapshot.session_mcp_servers).map_err(|e| {
@@ -1712,7 +1716,12 @@ impl ConversationService {
         let mcp_ids = match overrides.mcp_ids.as_ref() {
             Some(value) => value.clone(),
             None if definition.default_mcps_mode == "fixed" => {
-                parse_json_string_list(Some(definition.default_mcp_ids.as_str()), "default_mcp_ids")?
+                // Zeus mode presets ship NAMES here (row ids are per-install);
+                // resolve them against live rows. Editor-written id lists pass
+                // through the id-first match unchanged.
+                let entries =
+                    parse_json_string_list(Some(definition.default_mcp_ids.as_str()), "default_mcp_ids")?;
+                self.resolve_mcp_entries_to_ids(user_id, &entries).await?
             }
             None => preference
                 .as_ref()
@@ -5309,6 +5318,13 @@ impl ConversationService {
     /// `None`), deduped by name and classified against the agent's transport
     /// support. Shared by `create()` and the team refresh path so both persist
     /// the exact same snapshot shape.
+    ///
+    /// Explicitly selected builtin rows cannot ride the id path (id-based
+    /// injection skips builtin rows in the agent factories), so they are
+    /// converted to session-server snapshots here — the same split the team
+    /// path performs in `resolve_assistant_mcp_selection`. The global enabled
+    /// fallback (`None`) keeps its historical behavior of skipping builtin
+    /// rows entirely.
     async fn build_runtime_mcp_snapshot(
         &self,
         user_id: &str,
@@ -5324,6 +5340,7 @@ impl ConversationService {
         let mut mcp_statuses: Vec<ConversationMcpStatus> = Vec::new();
         let mut seen_mcp_names = HashSet::new();
         let mut status_index_by_name: HashMap<String, usize> = HashMap::new();
+        let mut builtin_session_servers: Vec<SessionMcpServer> = Vec::new();
         let repo = self
             .mcp_server_repo
             .read()
@@ -5342,17 +5359,35 @@ impl ConversationService {
             };
             let selected_rows = rows
                 .into_iter()
-                .filter(|row| !row.builtin && row.name != TEAM_MCP_SERVER_NAME)
+                .filter(|row| row.name != TEAM_MCP_SERVER_NAME)
                 .filter(|row| match selected_ids {
                     Some(ids) => ids.iter().any(|id| id == &row.id),
-                    None => row.enabled,
+                    None => row.enabled && !row.builtin,
                 })
                 .collect::<Vec<_>>();
-            mcp_server_ids = selected_rows.iter().map(|row| row.id.clone()).collect();
             for row in &selected_rows {
                 if seen_mcp_names.insert(row.name.clone()) {
                     mcp_servers.push(row.name.clone());
                 }
+                if row.builtin {
+                    match aionui_ai_agent::mcp_resolve::row_to_session_mcp_server(row).await {
+                        Ok(server) => builtin_session_servers.push(server),
+                        Err(err) => {
+                            upsert_conversation_mcp_status(
+                                &mut mcp_statuses,
+                                &mut status_index_by_name,
+                                ConversationMcpStatus {
+                                    id: row.id.clone(),
+                                    name: row.name.clone(),
+                                    status: ConversationMcpStatusKind::Failed,
+                                    reason: Some(err),
+                                },
+                            );
+                        }
+                    }
+                    continue;
+                }
+                mcp_server_ids.push(row.id.clone());
                 upsert_conversation_mcp_status(
                     &mut mcp_statuses,
                     &mut status_index_by_name,
@@ -5360,7 +5395,7 @@ impl ConversationService {
                 );
             }
         }
-        let mut selected_session_servers = Vec::with_capacity(session_servers.len());
+        let mut selected_session_servers = Vec::with_capacity(session_servers.len() + builtin_session_servers.len());
         for server in session_servers {
             if server.name == TEAM_MCP_SERVER_NAME {
                 continue;
@@ -5373,6 +5408,16 @@ impl ConversationService {
                 &mut mcp_statuses,
                 &mut status_index_by_name,
                 classify_session_mcp_status(server, mcp_support),
+            );
+        }
+        // Builtin rows converted above ride the session-server channel; names
+        // were already deduped against them, so only classification remains.
+        for server in builtin_session_servers {
+            selected_session_servers.push(server.clone());
+            upsert_conversation_mcp_status(
+                &mut mcp_statuses,
+                &mut status_index_by_name,
+                classify_session_mcp_status(&server, mcp_support),
             );
         }
         for status in additional_statuses {
@@ -5390,6 +5435,50 @@ impl ConversationService {
             mcp_servers,
             mcp_statuses,
         })
+    }
+
+    /// Resolve assistant MCP entries to concrete `mcp_servers` row ids.
+    ///
+    /// Fixed-mode lists historically hold row ids, but Zeus mode presets ship
+    /// NAMES (`default_mcp_ids` cannot carry per-install ids portably — see
+    /// aionui-assistant zeus_mode_presets.rs). Each entry matches a row by id
+    /// first, then by server name; unknown entries are skipped with a warn,
+    /// mirroring skill-name resolution. When the repository is unavailable the
+    /// entries pass through unchanged so id-based callers keep today's
+    /// behavior.
+    async fn resolve_mcp_entries_to_ids(
+        &self,
+        user_id: &str,
+        entries: &[String],
+    ) -> Result<Vec<String>, ConversationError> {
+        if entries.is_empty() {
+            return Ok(Vec::new());
+        }
+        let Some(repo) = self
+            .mcp_server_repo
+            .read()
+            .ok()
+            .and_then(|guard| guard.as_ref().cloned())
+        else {
+            warn!("MCP server repository unavailable; passing assistant MCP entries through unresolved");
+            return Ok(entries.to_vec());
+        };
+        let rows = repo
+            .list(user_id)
+            .await
+            .map_err(|e| ConversationError::internal(format!("Failed to list MCP servers for assistant binding: {e}")))?;
+        let mut resolved = Vec::with_capacity(entries.len());
+        for entry in entries {
+            let matched = rows
+                .iter()
+                .find(|row| &row.id == entry)
+                .or_else(|| rows.iter().find(|row| &row.name == entry));
+            match matched {
+                Some(row) => resolved.push(row.id.clone()),
+                None => warn!(entry = %entry, "assistant MCP entry matches no server, skipping"),
+            }
+        }
+        Ok(resolved)
     }
 
     /// Resolve one assistant's effective MCP binding using the same fixed/auto
@@ -5422,6 +5511,7 @@ impl ConversationService {
             &definition.default_mcp_ids,
             preference.as_ref().map(|row| row.last_mcp_ids.as_str()),
         )?;
+        let selected_ids = self.resolve_mcp_entries_to_ids(user_id, &selected_ids).await?;
 
         let repo = {
             let guard = self

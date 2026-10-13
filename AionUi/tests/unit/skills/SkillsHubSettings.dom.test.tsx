@@ -5,7 +5,9 @@ import React from 'react';
  * SPDX-License-Identifier: Apache-2.0
  *
  * Unit tests for SkillsHubSettings component (SK3 in N4a).
- * Shallow verification: module import + basic structure.
+ * The page manages only the user's imported skills ("我的技能"): the builtin
+ * corpus reaches agents through the fixed per-mode presets and is never
+ * listed here, and the import-history secondary view is gone.
  */
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -15,7 +17,6 @@ const mocks = vi.hoisted(() => ({
   listAvailableSkills: vi.fn(),
   getSkillPaths: vi.fn(),
   getSkillImportLimits: vi.fn(),
-  listSkillImportHistory: vi.fn(),
   importSkills: vi.fn(),
   deleteSkill: vi.fn(),
   showOpen: vi.fn(),
@@ -28,8 +29,7 @@ const mocks = vi.hoisted(() => ({
 const searchParamsMock = vi.hoisted(() => ({
   current: new URLSearchParams(),
   setSearchParams: vi.fn(),
-  pathname: '/settings/capabilities',
-  state: undefined as unknown,
+  pathname: '/skills',
   navigate: vi.fn(),
 }));
 
@@ -39,7 +39,6 @@ vi.mock('@/common', () => ({
       listAvailableSkills: { invoke: mocks.listAvailableSkills },
       getSkillPaths: { invoke: mocks.getSkillPaths },
       getSkillImportLimits: { invoke: mocks.getSkillImportLimits },
-      listSkillImportHistory: { invoke: mocks.listSkillImportHistory },
       importSkills: { invoke: mocks.importSkills },
       deleteSkill: { invoke: mocks.deleteSkill },
     },
@@ -67,7 +66,6 @@ vi.mock('@arco-design/web-react', async (importOriginal) => {
 });
 
 vi.mock('react-router-dom', () => ({
-  useLocation: () => ({ pathname: searchParamsMock.pathname, state: searchParamsMock.state }),
   useNavigate: () => searchParamsMock.navigate,
   useSearchParams: () => [searchParamsMock.current, searchParamsMock.setSearchParams],
 }));
@@ -100,8 +98,6 @@ describe('SkillsHubSettings', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     searchParamsMock.current = new URLSearchParams();
-    searchParamsMock.pathname = '/settings/capabilities';
-    searchParamsMock.state = undefined;
     mocks.listAvailableSkills.mockResolvedValue([]);
     mocks.getSkillPaths.mockResolvedValue({
       user_skills_dir: '/tmp/user-skills',
@@ -111,7 +107,6 @@ describe('SkillsHubSettings', () => {
       max_file_bytes: 12 * 1024 * 1024,
       max_total_bytes: 64 * 1024 * 1024,
     });
-    mocks.listSkillImportHistory.mockResolvedValue([]);
   });
 
   it('exports a component (smoke)', () => {
@@ -172,137 +167,6 @@ describe('SkillsHubSettings', () => {
     await waitFor(() => expect(mocks.listAvailableSkills.mock.calls.length).toBeGreaterThan(initialFetchCount));
   });
 
-  it('renders import history failure detail in the secondary view', async () => {
-    searchParamsMock.pathname = '/settings/skills/import-history';
-    mocks.listSkillImportHistory.mockResolvedValue([
-      {
-        id: 'record-1',
-        operation_id: 'operation-1',
-        source_label: 'parent-pack',
-        source_name: 'beta-skill',
-        status: 'failed',
-        error_code: 'SKILL_IMPORT_FILE_TOO_LARGE',
-        error_path: 'movie.bin',
-        actual_bytes: 11 * 1024 * 1024,
-        limit_bytes: 10 * 1024 * 1024,
-        created_at: 1_700_000_000_000,
-      },
-    ]);
-
-    render(<SkillsHubSettings withWrapper={false} />);
-
-    await waitFor(() => expect(screen.getByTestId('skill-import-history-page')).toBeInTheDocument());
-    expect(screen.getByText('parent-pack')).toBeInTheDocument();
-    expect(screen.getByText(/beta-skill/)).toBeInTheDocument();
-    expect(screen.getAllByText(/movie\.bin/).length).toBeGreaterThan(0);
-  });
-
-  it('renders import history entry point when history is empty', async () => {
-    render(<SkillsHubSettings withWrapper={false} />);
-
-    await waitFor(() => expect(screen.getByTestId('btn-open-import-history')).toBeInTheDocument());
-    expect(screen.queryByText('No import records yet.')).not.toBeInTheDocument();
-  });
-
-  it('renders import history as a secondary view without search or category filters', async () => {
-    searchParamsMock.pathname = '/settings/skills/import-history';
-    mocks.listSkillImportHistory.mockResolvedValue([
-      {
-        id: 'record-1',
-        operation_id: 'operation-1',
-        source_label: 'parent-pack',
-        source_name: 'beta-skill',
-        status: 'failed',
-        error_code: 'SKILL_IMPORT_FILE_TOO_LARGE',
-        error_path: 'movie.bin',
-        actual_bytes: 11 * 1024 * 1024,
-        limit_bytes: 10 * 1024 * 1024,
-        created_at: 1_700_000_000_000,
-      },
-    ]);
-
-    render(<SkillsHubSettings withWrapper={false} />);
-
-    await waitFor(() => expect(screen.getByTestId('skill-import-history-page')).toBeInTheDocument());
-    expect(screen.queryByTestId('my-skills-section')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('input-search-my-skills')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'All' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Failed' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Success' })).not.toBeInTheDocument();
-  });
-
-  it('shows concise repair instructions for failed import history records', async () => {
-    searchParamsMock.pathname = '/settings/skills/import-history';
-    mocks.listSkillImportHistory.mockResolvedValue([
-      {
-        id: 'record-1',
-        operation_id: 'operation-1',
-        source_label: 'parent-pack',
-        source_name: 'beta-skill',
-        status: 'failed',
-        error_code: 'SKILL_IMPORT_FILE_TOO_LARGE',
-        error_path: 'movie.bin',
-        actual_bytes: 11 * 1024 * 1024,
-        limit_bytes: 10 * 1024 * 1024,
-        created_at: 1_700_000_000_000,
-      },
-    ]);
-
-    render(<SkillsHubSettings withWrapper={false} />);
-
-    await waitFor(() => expect(screen.getByTestId('skill-import-history-page')).toBeInTheDocument());
-    expect(screen.getByText('Repair: remove the oversized file and import again')).toBeInTheDocument();
-    expect(screen.getAllByText(/movie\.bin/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/11 MB/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/10 MB/).length).toBeGreaterThan(0);
-    expect(screen.queryByText('Latest 5')).not.toBeInTheDocument();
-  });
-
-  it('does not expose technical error details in import history', async () => {
-    searchParamsMock.pathname = '/settings/skills/import-history';
-    mocks.listSkillImportHistory.mockResolvedValue([
-      {
-        id: 'record-1',
-        operation_id: 'operation-1',
-        source_label: 'parent-pack',
-        source_name: 'beta-skill',
-        status: 'failed',
-        error_code: 'SKILL_IMPORT_FILE_TOO_LARGE',
-        error_path: 'movie.bin',
-        actual_bytes: 11 * 1024 * 1024,
-        limit_bytes: 10 * 1024 * 1024,
-        created_at: 1_700_000_000_000,
-      },
-    ]);
-
-    render(<SkillsHubSettings withWrapper={false} />);
-
-    await waitFor(() => expect(screen.getByTestId('skill-import-history-page')).toBeInTheDocument());
-    expect(screen.queryByText('Technical info')).not.toBeInTheDocument();
-    expect(screen.queryByText('SKILL_IMPORT_FILE_TOO_LARGE')).not.toBeInTheDocument();
-  });
-
-  it('shows specific repair instructions for known non-size import errors', async () => {
-    searchParamsMock.pathname = '/settings/skills/import-history';
-    mocks.listSkillImportHistory.mockResolvedValue([
-      {
-        id: 'record-zip',
-        operation_id: 'operation-zip',
-        source_label: 'broken.zip',
-        source_name: 'broken.zip',
-        status: 'failed',
-        error_code: 'SKILL_IMPORT_INVALID_ZIP',
-        created_at: 1_700_000_000_000,
-      },
-    ]);
-
-    render(<SkillsHubSettings withWrapper={false} />);
-
-    await waitFor(() => expect(screen.getByTestId('skill-import-history-page')).toBeInTheDocument());
-    expect(screen.getByText('Repair: create the zip again and import it')).toBeInTheDocument();
-    expect(screen.queryByText('Repair: update the skill files and import again')).not.toBeInTheDocument();
-  });
-
   it('does not render an available status tag for imported skills', async () => {
     mocks.listAvailableSkills.mockResolvedValue([
       {
@@ -323,7 +187,7 @@ describe('SkillsHubSettings', () => {
     expect(screen.queryByText('Available')).not.toBeInTheDocument();
   });
 
-  it('splits custom and official skills into two tabs, with auto-injected under Official', async () => {
+  it('lists only the user skills and never the official/auto-injected corpus', async () => {
     mocks.listAvailableSkills.mockResolvedValue([
       {
         name: 'cron',
@@ -359,69 +223,31 @@ describe('SkillsHubSettings', () => {
 
     render(<SkillsHubSettings withWrapper={false} />);
 
-    // Custom tab is active by default: shows the imported skill, not the builtin/auto ones.
     await waitFor(() => expect(screen.getByTestId('my-skill-card-sample-single')).toBeInTheDocument());
-    expect(screen.queryByTestId('auto-skills-section')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('official-skill-card-officecli')).not.toBeInTheDocument();
-
-    // Switch to the Official tab: official builtin list + auto-injected section appear.
-    fireEvent.click(screen.getByTestId('settings-tab-official'));
-    expect(screen.getByTestId('official-skill-card-officecli')).toBeInTheDocument();
-    expect(screen.getByTestId('auto-skills-section')).toBeInTheDocument();
-    expect(screen.getByText('cron')).toBeInTheDocument();
-    // cron-source skills are never listed.
+    expect(screen.queryByText('officecli')).not.toBeInTheDocument();
+    expect(screen.queryByText('cron')).not.toBeInTheDocument();
     expect(screen.queryByText('job-generated')).not.toBeInTheDocument();
-    // The custom skill is not in the Official tab.
-    expect(screen.queryByTestId('my-skill-card-sample-single')).not.toBeInTheDocument();
+    // No Official tab and no import-history entry point.
+    expect(screen.queryByTestId('settings-tab-official')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('btn-open-import-history')).not.toBeInTheDocument();
   });
 
-  it('restores the originating tab and preserves it when opening another skill', async () => {
-    searchParamsMock.state = { skillsTab: 'official' };
+  it('navigates to the skill detail page without tab state', async () => {
     mocks.listAvailableSkills.mockResolvedValue([
       {
-        name: 'officecli',
-        description: 'Official builtin skill.',
-        location: '/tmp/builtin-skills/officecli/SKILL.md',
-        is_auto_inject: false,
-        is_custom: false,
-        source: 'builtin',
+        name: 'sample-single',
+        description: 'Single folder import fixture.',
+        location: '/tmp/user-skills/sample-single',
+        is_custom: true,
+        source: 'custom',
       },
     ]);
 
     render(<SkillsHubSettings withWrapper={false} />);
 
-    const card = await screen.findByTestId('official-skill-card-officecli');
+    const card = await screen.findByTestId('my-skill-card-sample-single');
     fireEvent.click(card);
-    expect(searchParamsMock.navigate).toHaveBeenCalledWith('/settings/skills/detail/officecli', {
-      state: { skillsTab: 'official' },
-    });
-  });
-
-  it('renders the auto-injected skills hint without an Arco popup trigger', async () => {
-    mocks.listAvailableSkills.mockResolvedValue([
-      {
-        name: 'officecli',
-        description: 'Create, analyze, proofread, and modify Office documents.',
-        location: '/tmp/builtin-skills/auto-inject/officecli/SKILL.md',
-        is_auto_inject: true,
-        is_custom: false,
-        source: 'builtin',
-      },
-    ]);
-
-    render(<SkillsHubSettings withWrapper={false} />);
-
-    fireEvent.click(await screen.findByTestId('settings-tab-official'));
-
-    const autoSection = screen.getByTestId('auto-skills-section');
-    const nativeHint = Array.from(autoSection.querySelectorAll('[title]')).some(
-      (el) =>
-        el.getAttribute('title') ===
-        'Loaded automatically into every conversation — no need to enable them; the agent decides when to use them.'
-    );
-
-    expect(nativeHint).toBe(true);
-    expect(autoSection.querySelector('.arco-trigger')).not.toBeInTheDocument();
+    expect(searchParamsMock.navigate).toHaveBeenCalledWith('/skills/detail/sample-single');
   });
 
   it('does not expose the local skills directory path on the skills page', async () => {

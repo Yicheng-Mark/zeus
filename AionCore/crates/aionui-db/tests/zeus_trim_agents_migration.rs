@@ -1,9 +1,10 @@
-//! Migration 045 — Zeus keeps only the three shipped engines
-//! (Zeus/aionrs internal, Claude Code, OpenCode). These tests run the full
-//! migration chain through the production init path (pragma setup included)
-//! on a fresh in-memory database and assert the post-045 catalog state, so a
-//! future migration that accidentally reintroduces a builtin row or
-//! resurrects the butler definition fails here first.
+//! Migration 045/048 — Zeus keeps only the three shipped engines
+//! (设计/aionrs internal, 开发/Claude Code, 办公/OpenCode — role names and
+//! icons applied by 048). These tests run the full migration chain through
+//! the production init path (pragma setup included) on a fresh in-memory
+//! database and assert the final catalog state, so a future migration that
+//! accidentally reintroduces a builtin row or resurrects the butler
+//! definition fails here first.
 
 use aionui_db::init_database_memory;
 use sqlx::Row;
@@ -21,11 +22,11 @@ async fn agent_metadata_keeps_only_the_three_zeus_engines() {
     assert_eq!(
         rows,
         vec![
-            ("632f31d2".to_string(), "internal".to_string(), "Zeus".to_string()),
-            ("2d23ff1c".to_string(), "builtin".to_string(), "Claude Code".to_string()),
-            ("53861a53".to_string(), "builtin".to_string(), "OpenCode".to_string()),
+            ("632f31d2".to_string(), "internal".to_string(), "设计".to_string()),
+            ("2d23ff1c".to_string(), "builtin".to_string(), "开发".to_string()),
+            ("53861a53".to_string(), "builtin".to_string(), "办公".to_string()),
         ],
-        "expected exactly Zeus(aionrs), Claude Code and OpenCode after 045"
+        "expected exactly 设计(aionrs), 开发(Claude Code) and 办公(OpenCode) after the full chain"
     );
 }
 
@@ -69,22 +70,25 @@ async fn kept_claude_row_still_carries_its_spawn_configuration() {
 
     // Claude is a direct-CLI row: `command` is NULL and the binary is resolved
     // from agent_source_info.binary_name, so assert that survives the sweep.
+    // The role name/icon come from 048.
     let row = sqlx::query(
-        "SELECT name, backend,
+        "SELECT name, backend, icon,
                 json_extract(agent_source_info, '$.binary_name') AS binary_name
          FROM agent_metadata WHERE agent_id = '2d23ff1c'",
     )
     .fetch_one(db.pool())
     .await
     .unwrap();
-    assert_eq!(row.get::<String, _>("name"), "Claude Code");
+    assert_eq!(row.get::<String, _>("name"), "开发");
+    assert_eq!(row.get::<String, _>("icon"), "/api/assets/logos/zeus/dev.png");
     assert_eq!(row.get::<String, _>("backend"), "claude");
     assert_eq!(row.get::<String, _>("binary_name"), "claude");
 
-    let row = sqlx::query("SELECT name, agent_type FROM agent_metadata WHERE agent_id = '632f31d2'")
+    let row = sqlx::query("SELECT name, icon, agent_type FROM agent_metadata WHERE agent_id = '632f31d2'")
         .fetch_one(db.pool())
         .await
         .unwrap();
-    assert_eq!(row.get::<String, _>("name"), "Zeus");
+    assert_eq!(row.get::<String, _>("name"), "设计");
+    assert_eq!(row.get::<String, _>("icon"), "/api/assets/logos/zeus/design.png");
     assert_eq!(row.get::<String, _>("agent_type"), "aionrs");
 }

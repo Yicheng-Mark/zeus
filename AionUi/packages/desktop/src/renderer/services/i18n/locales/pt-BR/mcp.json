@@ -1,5 +1,4 @@
 {
-  "label": "MCP",
   "integration": {
     "title": "Integração MCP",
     "description": "Gerenciar servidores e ferramentas do Model Context Protocol"
@@ -25,10 +24,8 @@
   "result": "Resultado",
   "noParameters": "Esta ferramenta não possui parâmetros",
   "noServers": "Nenhum servidor MCP configurado",
-  "noServersFound": "Nenhum servidor encontrado correspondente aos seus critérios",
   "noTools": "Nenhuma ferramenta disponível",
   "noExecutions": "Nenhum histórico de execução",
-  "searchServers": "Buscar servidores...",
   "searchTools": "Buscar ferramentas...",
   "filterByStatus": "Filtrar por status",
   "transport": "Transporte",

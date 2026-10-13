@@ -578,15 +578,7 @@
     "slashHint": "Skill"
   },
   "mcp": {
-    "loaded": "MCP geladen",
-    "managementHint": "Falls ein MCP unnormal aussieht, wird dies normalerweise durch die MCP-JSON-Konfiguration verursacht. Gehe zu den Tool-Einstellungen und teste es dort.",
-    "openSettings": "Tool-Einstellungen öffnen",
-    "status": {
-      "loaded": "Geladen",
-      "failed": "Fehlgeschlagen",
-      "unsupported": "Nicht unterstützt"
-    },
-    "selected": "Ausgewählte MCP"
+    "loaded": "MCP geladen"
   },
   "runtimePreparing": {
     "sendboxHint": "Laufzeit-Umgebung wird vorbereitet. Der erste Start kann etwas länger dauern."

@@ -17,7 +17,7 @@
 
   /* Background Colors - Light Mode */
   --bg-base: #ffffff; /* bg-0 - 主背景 */
-  --bg-1: #f2f8f4; /* 次级背景 */
+  --bg-1: #f2f3f5; /* 次级背景 - 与侧边栏 (--bg-2) 同色，去掉薄荷绿调 */
   --bg-2: #f2f3f5; /* 三级背景 */
   --bg-3: #e5e6eb; /* 边框/分隔 */
   --bg-4: #c9cdd4;
@@ -28,7 +28,7 @@
   --bg-10: #0c0e12;
 
   /* Interactive State Colors - Light Mode */
-  --bg-hover: #eef5f0; /* 悬停背景 - 在 bg-1 和 bg-2 之间 */
+  --bg-hover: #e9ebef; /* 悬停背景 - 中性灰，略深于 bg-1 */
   --bg-active: #e5e6eb; /* 激活/按下背景 */
 
   /* Text Colors - Light Mode */
@@ -54,8 +54,8 @@
   --brand-hover: #b5bcd6; /* 品牌色悬停 */
 
   /* Message & UI Component Colors - Light Mode */
-  --message-user-bg: #e8f5ee; /* 用户消息背景（浅蓝） */
-  --message-tips-bg: #f0f7f3; /* 提示信息背景（浅蓝） */
+  --message-user-bg: #e8eaf0; /* 用户消息背景（中性灰蓝） */
+  --message-tips-bg: #eef0f4; /* 提示信息背景（中性灰蓝） */
   --workspace-btn-bg: #eff0f1; /* 工作区按钮背景 */
   --thought-gradient: linear-gradient(90deg, #f0f3ff 0%, #f2f2f2 100%); /* 思考面板背景渐变 */
 

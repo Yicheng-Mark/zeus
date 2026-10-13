@@ -862,15 +862,16 @@ mod tests {
     async fn seed_rows_populated_after_migrations() {
         let (repo, _db) = setup().await;
         let rows = repo.list_all().await.unwrap();
-        // Zeus trims the catalog (045) to the three shipped engines:
-        // Claude Code + OpenCode builtins and the internal aionrs row.
+        // Zeus trims the catalog (045) to the three shipped engines and gives
+        // them role names/icons (048): 开发 (Claude Code) + 办公 (OpenCode)
+        // builtins and the internal 设计 (aionrs) row.
         assert_eq!(rows.len(), 3, "seed rows: Zeus keeps exactly three engines");
         assert!(
             rows.iter()
-                .any(|r| r.name == "Claude Code" && r.agent_source == "builtin")
+                .any(|r| r.name == "开发" && r.agent_source == "builtin")
         );
-        assert!(rows.iter().any(|r| r.name == "OpenCode" && r.agent_source == "builtin"));
-        assert!(rows.iter().any(|r| r.name == "Zeus" && r.agent_source == "internal"));
+        assert!(rows.iter().any(|r| r.name == "办公" && r.agent_source == "builtin"));
+        assert!(rows.iter().any(|r| r.name == "设计" && r.agent_source == "internal"));
         // The swept vendors must be gone entirely.
         for gone in ["Codex CLI", "Gemini CLI", "Kimi", "Hermes", "Nanobot", "OpenClaw"] {
             assert!(!rows.iter().any(|r| r.name == gone), "{gone} must not survive 045");
@@ -889,7 +890,7 @@ mod tests {
             .expect("corrupted cache field must not remove the row");
 
         assert!(claude.config_options.is_none());
-        assert_eq!(claude.name, "Claude Code");
+        assert_eq!(claude.name, "开发");
         assert_eq!(cache_field_blob(&db, "2d23ff1c", "config_options").await, None);
     }
 
@@ -935,7 +936,7 @@ mod tests {
     async fn find_by_source_and_name_hits_seed_row() {
         let (repo, _db) = setup().await;
         let row = repo
-            .find_by_source_and_name("builtin", "Claude Code")
+            .find_by_source_and_name("builtin", "开发")
             .await
             .unwrap()
             .expect("seeded claude row");
@@ -948,14 +949,14 @@ mod tests {
         let (repo, _db) = setup().await;
 
         let claude = repo.get("2d23ff1c").await.unwrap().expect("seeded claude row");
-        assert_eq!(claude.icon.as_deref(), Some("/api/assets/logos/ai-major/claude.svg"));
+        assert_eq!(claude.icon.as_deref(), Some("/api/assets/logos/zeus/dev.png"));
 
         let rows = repo.list_all().await.unwrap();
         let aionrs = rows
             .iter()
             .find(|row| row.agent_type == "aionrs" && row.agent_source == "internal")
             .expect("seeded aion cli row");
-        assert_eq!(aionrs.icon.as_deref(), Some("/api/assets/logos/brand/aion.svg"));
+        assert_eq!(aionrs.icon.as_deref(), Some("/api/assets/logos/zeus/design.png"));
         let aionrs_modes: serde_json::Value =
             serde_json::from_str(aionrs.available_modes.as_deref().expect("aionrs modes catalog")).unwrap();
         assert_eq!(aionrs_modes["current_mode_id"].as_str(), Some("default"));
@@ -1228,8 +1229,8 @@ mod tests {
         let user_a = repo.get_for_user(USER_A, "2d23ff1c").await.unwrap().unwrap();
         let user_b = repo.get_for_user(USER_B, "2d23ff1c").await.unwrap().unwrap();
 
-        assert_eq!(user_a.name, "Claude Code");
-        assert_eq!(user_b.name, "Claude Code");
+        assert_eq!(user_a.name, "开发");
+        assert_eq!(user_b.name, "开发");
         assert_eq!(user_a.agent_source, "builtin");
         assert_eq!(user_b.agent_source, "builtin");
     }

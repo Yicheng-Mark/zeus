@@ -5,6 +5,7 @@
  */
 
 import type { IProvider, TProviderWithModel } from '@/common/config/storage';
+import { providerServesAgent } from '@/common/utils/agentScopes';
 import { useGoogleAuthModels } from '@/renderer/hooks/agent/useGoogleAuthModels';
 import { useProvidersQuery } from '@/renderer/hooks/agent/useModelProviderList';
 import { hasAvailableModels } from '../utils/modelUtils';
@@ -53,8 +54,8 @@ export const useGuidModelSelection = (agentKey: ProviderAgentKey = 'aionrs'): Gu
 
   const modelList = useMemo(() => {
     const allProviders: IProvider[] = (modelConfig || []).filter((platform) => !!platform.models.length);
-    return allProviders.filter(hasAvailableModels);
-  }, [modelConfig]);
+    return allProviders.filter(hasAvailableModels).filter((provider) => providerServesAgent(provider, agentKey));
+  }, [modelConfig, agentKey]);
 
   const formatGeminiModelLabel = useCallback((_provider: { platform?: string } | undefined, modelName?: string) => {
     if (!modelName) return '';

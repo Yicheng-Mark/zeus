@@ -13,23 +13,14 @@ import {
 import { AionSearchInput } from '@/renderer/components/base';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { useManagedAgents } from '@/renderer/hooks/agent/useManagedAgents';
-import { openExternalUrl } from '@/renderer/utils/platform';
-import { Button, Message, Typography } from '@arco-design/web-react';
+import { Message, Typography } from '@arco-design/web-react';
 import React, { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import AgentCard from './AgentCard';
-import IsolatedRuntimeCard from './IsolatedRuntimeCard';
 import { isDeprecatedRuntimeAgentType } from '@/renderer/utils/model/agentTypeSupportPolicy';
 import { getBoundAssistants, useAssistantsForAgents } from './BoundAssistants';
 import SettingsPageHeader from '../components/SettingsPageHeader';
 import { useNavigate } from 'react-router-dom';
-import {
-  filterAgentsByAvailability,
-  getAgentAvailabilityFilterStats,
-  type AgentAvailabilityFilter,
-} from './agentFilters';
-
-const LOCAL_AGENT_SETUP_GUIDE_URL = 'https://github.com/iOfficeAI/AionUi/wiki/ACP-Setup';
 
 const LocalAgents: React.FC = () => {
   const { t, i18n } = useTranslation();
@@ -37,7 +28,6 @@ const LocalAgents: React.FC = () => {
   const layout = useLayoutContext();
   const isMobile = layout?.isMobile ?? false;
   const [testingAgentId, setTestingAgentId] = useState<string | null>(null);
-  const [agentFilter, setAgentFilter] = useState<AgentAvailabilityFilter>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const { assistants } = useAssistantsForAgents();
 
@@ -74,10 +64,9 @@ const LocalAgents: React.FC = () => {
       }),
     [officialAgents]
   );
-  const officialFilterStats = getAgentAvailabilityFilterStats(sortedOfficialAgents);
-  const visibleOfficialAgents = filterAgentsByAvailability(
-    sortedOfficialAgents.filter(matchesAgentSearch),
-    agentFilter
+  const visibleOfficialAgents = useMemo(
+    () => sortedOfficialAgents.filter(matchesAgentSearch),
+    [sortedOfficialAgents, matchesAgentSearch]
   );
 
   const openAgentConfig = useCallback(
@@ -132,21 +121,7 @@ const LocalAgents: React.FC = () => {
       <SettingsPageHeader
         data-testid='agent-management-header'
         title={t('settings.agents', { defaultValue: 'Agents' })}
-        description={
-          <>
-            <span>{t('settings.agentManagement.localAgentsDescription')} </span>
-            <Button
-              type='text'
-              size='mini'
-              className='!h-auto !p-0 !align-baseline !text-13px !font-normal !text-primary-6 hover:!text-primary-7 hover:!underline underline-offset-2'
-              onClick={() => {
-                void openExternalUrl(LOCAL_AGENT_SETUP_GUIDE_URL).catch(console.error);
-              }}
-            >
-              {t('settings.agentManagement.localAgentsSetupLink')}
-            </Button>
-          </>
-        }
+        description={t('settings.agentManagement.localAgentsDescription')}
         actions={
           <>
             {!isMobile && (
@@ -164,28 +139,15 @@ const LocalAgents: React.FC = () => {
           {
             key: 'all',
             label: t('settings.agentManagement.filterAll', { defaultValue: 'All' }),
-            count: officialFilterStats.all,
-          },
-          {
-            key: 'available',
-            label: t('settings.agentManagement.filterAvailable', { defaultValue: 'Available' }),
-            count: officialFilterStats.available,
-          },
-          {
-            key: 'unavailable',
-            label: t('settings.agentManagement.filterUnavailable', { defaultValue: 'Unavailable' }),
-            count: officialFilterStats.unavailable,
+            count: sortedOfficialAgents.length,
           },
         ]}
-        activeTab={agentFilter}
-        onTabChange={(key) => setAgentFilter(key as AgentAvailabilityFilter)}
+        activeTab='all'
       />
 
       {isRefreshing ? (
         <div className='text-11px text-t-tertiary'>{t('settings.agentManagement.refreshingStatuses')}</div>
       ) : null}
-
-      <IsolatedRuntimeCard />
 
       {/* Detected Agents section */}
       <div data-testid='agent-management-official-section'>

@@ -46,13 +46,13 @@ export interface ExternalSource {
 // ============================================================================
 
 /**
- * Navigate to Skills Hub settings page using UI click
- * Note: Skills is a standalone settings entry (`/settings/skills`) since the
- * capabilities page was split into separate Skills / Tools sider entries.
+ * Navigate to the Skills Hub page using UI click
+ * Note: Skills is a standalone top-level entry (`/skills`) since the
+ * capabilities page was split into separate Skills / Connectors entries.
  */
 export async function goToSkillsHub(page: Page): Promise<void> {
-  // Navigate to Skills settings page
-  await navigateTo(page, '#/settings/skills');
+  // Navigate to the Skills page
+  await navigateTo(page, '#/skills');
 
   // Wait a bit for React Router to settle
   await page.waitForTimeout(500);

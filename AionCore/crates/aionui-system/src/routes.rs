@@ -7,11 +7,13 @@ use axum::http::StatusCode;
 use axum::routing::{delete, get, post};
 
 use aionui_api_types::{
-    ApiResponse, ClientPreferencesResponse, CreateProviderRequest, CurrentUserResponse, DetectProtocolRequest,
-    EnsureNodeRuntimeRequest, EnsureNodeRuntimeResponse, FeedbackDiagnosticsQuery, FeedbackDiagnosticsResponse,
-    FetchModelsAnonymousRequest, FetchModelsRequest, FetchModelsResponse, ProtocolDetectionResponse, ProviderResponse,
-    SystemInfoResponse, SystemSettingsResponse, UpdateCheckRequest, UpdateCheckResult, UpdateClientPreferencesRequest,
-    UpdateProviderRequest, UpdateSettingsRequest,
+    ApiResponse, ClientPreferencesResponse, CreateKnowledgeNoteRequest, CreateProviderRequest, CurrentUserResponse,
+    DetectProtocolRequest, EnsureNodeRuntimeRequest, EnsureNodeRuntimeResponse, FeedbackDiagnosticsQuery,
+    FeedbackDiagnosticsResponse, FetchModelsAnonymousRequest, FetchModelsRequest, FetchModelsResponse,
+    KnowledgeBacklinksResponse, KnowledgeListQuery, KnowledgeNote, KnowledgeNoteSummary, KnowledgeReindexResponse,
+    ProtocolDetectionResponse, ProviderResponse, SystemInfoResponse, SystemSettingsResponse, UpdateCheckRequest,
+    UpdateCheckResult, UpdateClientPreferencesRequest, UpdateKnowledgeNoteRequest, UpdateProviderRequest,
+    UpdateSettingsRequest,
 };
 use aionui_auth::CurrentUser;
 use aionui_common::ApiError;
@@ -19,6 +21,7 @@ use aionui_common::ApiError;
 use crate::client_pref::ClientPrefService;
 use crate::diagnostics::FeedbackDiagnosticsService;
 use crate::error::SystemError;
+use crate::knowledge::KnowledgeService;
 use crate::model_fetcher::ModelFetchService;
 use crate::protocol::ProtocolDetectionService;
 use crate::provider::ProviderService;
@@ -37,6 +40,7 @@ pub struct SystemRouterState {
     pub version_check_service: VersionCheckService,
     pub runtime_prepare_service: RuntimePrepareService,
     pub feedback_diagnostics_service: FeedbackDiagnosticsService,
+    pub knowledge_service: KnowledgeService,
 }
 
 impl From<SystemError> for ApiError {
@@ -89,6 +93,13 @@ pub fn system_routes(state: SystemRouterState) -> Router {
         .route("/api/providers/fetch-models", post(fetch_models_anonymous))
         .route("/api/providers/{id}", delete(delete_provider).put(update_provider))
         .route("/api/providers/{id}/models", post(fetch_models))
+        .route("/api/knowledge/notes", get(list_knowledge_notes).post(create_knowledge_note))
+        .route(
+            "/api/knowledge/notes/{id}",
+            get(get_knowledge_note).put(update_knowledge_note).delete(delete_knowledge_note),
+        )
+        .route("/api/knowledge/notes/{id}/backlinks", get(get_knowledge_backlinks))
+        .route("/api/knowledge/reindex", post(reindex_knowledge))
         .route("/api/system/current-user", get(get_current_user))
         .route("/api/system/info", get(get_system_info))
         .route("/api/system/check-update", post(check_update))
@@ -336,4 +347,73 @@ async fn ensure_node_runtime(
         .ensure_node_runtime_for_user(&user.id, req.scope)
         .await?;
     Ok(Json(ApiResponse::ok(result)))
+}
+
+// ===========================================================================
+// Knowledge base handlers (Obsidian-compatible vault)
+// ===========================================================================
+
+async fn list_knowledge_notes(
+    State(state): State<SystemRouterState>,
+    Extension(user): Extension<CurrentUser>,
+    Query(query): Query<KnowledgeListQuery>,
+) -> Result<Json<ApiResponse<Vec<KnowledgeNoteSummary>>>, ApiError> {
+    let notes = state.knowledge_service.list(&user.id, query.q.as_deref()).await.map_err(ApiError::from)?;
+    Ok(Json(ApiResponse::ok(notes)))
+}
+
+async fn create_knowledge_note(
+    State(state): State<SystemRouterState>,
+    Extension(user): Extension<CurrentUser>,
+    body: Result<Json<CreateKnowledgeNoteRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<KnowledgeNote>>, ApiError> {
+    let Json(req) = body.map_err(ApiError::from)?;
+    let note = state.knowledge_service.create(&user.id, req).await.map_err(ApiError::from)?;
+    Ok(Json(ApiResponse::ok(note)))
+}
+
+async fn get_knowledge_note(
+    State(state): State<SystemRouterState>,
+    Extension(user): Extension<CurrentUser>,
+    Path(id): Path<String>,
+) -> Result<Json<ApiResponse<KnowledgeNote>>, ApiError> {
+    let note = state.knowledge_service.get(&user.id, &id).await.map_err(ApiError::from)?;
+    Ok(Json(ApiResponse::ok(note)))
+}
+
+async fn update_knowledge_note(
+    State(state): State<SystemRouterState>,
+    Extension(user): Extension<CurrentUser>,
+    Path(id): Path<String>,
+    body: Result<Json<UpdateKnowledgeNoteRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<KnowledgeNote>>, ApiError> {
+    let Json(req) = body.map_err(ApiError::from)?;
+    let note = state.knowledge_service.update(&user.id, &id, req).await.map_err(ApiError::from)?;
+    Ok(Json(ApiResponse::ok(note)))
+}
+
+async fn delete_knowledge_note(
+    State(state): State<SystemRouterState>,
+    Extension(user): Extension<CurrentUser>,
+    Path(id): Path<String>,
+) -> Result<Json<ApiResponse<()>>, ApiError> {
+    state.knowledge_service.delete(&user.id, &id).await.map_err(ApiError::from)?;
+    Ok(Json(ApiResponse::ok(())))
+}
+
+async fn get_knowledge_backlinks(
+    State(state): State<SystemRouterState>,
+    Extension(user): Extension<CurrentUser>,
+    Path(id): Path<String>,
+) -> Result<Json<ApiResponse<KnowledgeBacklinksResponse>>, ApiError> {
+    let notes = state.knowledge_service.backlinks(&user.id, &id).await.map_err(ApiError::from)?;
+    Ok(Json(ApiResponse::ok(KnowledgeBacklinksResponse { notes })))
+}
+
+async fn reindex_knowledge(
+    State(state): State<SystemRouterState>,
+    Extension(user): Extension<CurrentUser>,
+) -> Result<Json<ApiResponse<KnowledgeReindexResponse>>, ApiError> {
+    let report = state.knowledge_service.reindex(&user.id).await.map_err(ApiError::from)?;
+    Ok(Json(ApiResponse::ok(report)))
 }

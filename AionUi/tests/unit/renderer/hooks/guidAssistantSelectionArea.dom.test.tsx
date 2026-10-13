@@ -118,7 +118,12 @@ describe('AssistantSelectionArea', () => {
 
   it('renders nothing when no engine row is available', () => {
     const { container } = render(
-      <AssistantSelectionArea selectedAssistantId={null} assistants={[]} localeKey='en-US' onSelectAssistant={vi.fn()} />
+      <AssistantSelectionArea
+        selectedAssistantId={null}
+        assistants={[]}
+        localeKey='en-US'
+        onSelectAssistant={vi.fn()}
+      />
     );
 
     expect(container.firstChild).toBeNull();

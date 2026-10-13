@@ -200,7 +200,5 @@
     "second_short": "s"
   },
   "goBack": "Back",
-  "selectedCount": "{{count}} seleccionado(s)",
-  "selectedSkills": "Habilidades seleccionadas",
   "aiAssistant": "Asistente de IA"
 }

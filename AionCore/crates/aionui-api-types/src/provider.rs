@@ -172,6 +172,10 @@ pub struct ProviderResponse {
     pub bedrock_config: Option<BedrockConfig>,
     #[serde(default)]
     pub is_full_url: bool,
+    /// Agent backends this provider is scoped to (`aionrs`, `claude`, `opencode`).
+    /// `None` or empty = available to every agent.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agent_scopes: Vec<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -209,6 +213,9 @@ pub struct CreateProviderRequest {
     pub bedrock_config: Option<BedrockConfig>,
     #[serde(default)]
     pub is_full_url: bool,
+    /// Agent backends this provider is scoped to. `None`/empty = all agents.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_scopes: Option<Vec<String>>,
 }
 
 fn default_true() -> bool {
@@ -234,6 +241,7 @@ pub struct UpdateProviderRequest {
     pub model_settings: Option<HashMap<String, ModelSettings>>,
     pub bedrock_config: Option<BedrockConfig>,
     pub is_full_url: Option<bool>,
+    pub agent_scopes: Option<Vec<String>>,
 }
 
 /// Request body for `POST /api/providers/:id/models`.
@@ -505,6 +513,7 @@ mod tests {
             model_settings: HashMap::new(),
             bedrock_config: None,
             is_full_url: false,
+            agent_scopes: vec![],
             created_at: 1712345678000,
             updated_at: 1712345678000,
         };
@@ -539,6 +548,7 @@ mod tests {
             model_settings: HashMap::new(),
             bedrock_config: None,
             is_full_url: false,
+            agent_scopes: vec![],
             created_at: 0,
             updated_at: 0,
         };
@@ -661,12 +671,60 @@ mod tests {
             model_settings: HashMap::new(),
             bedrock_config: None,
             is_full_url: false,
+            agent_scopes: None,
         };
         let json = serde_json::to_value(&req).unwrap();
         assert!(json.get("id").is_none());
+        assert!(json.get("agent_scopes").is_none());
     }
 
     // -- UpdateProviderRequest --
+
+    #[test]
+    fn test_create_provider_request_with_agent_scopes() {
+        let raw = json!({
+            "platform": "custom",
+            "name": "Proxy",
+            "base_url": "https://proxy.example.com",
+            "api_key": "sk-test",
+            "agent_scopes": ["aionrs", "opencode"]
+        });
+        let req: CreateProviderRequest = serde_json::from_value(raw).unwrap();
+        assert_eq!(req.agent_scopes, Some(vec!["aionrs".into(), "opencode".into()]));
+    }
+
+    #[test]
+    fn test_provider_response_agent_scopes_skip_when_empty() {
+        let resp = ProviderResponse {
+            id: "id".into(),
+            platform: "openai".into(),
+            name: "n".into(),
+            base_url: "https://api.openai.com".into(),
+            api_key: "sk".into(),
+            models: vec![],
+            enabled: true,
+            capabilities: vec![],
+            context_limit: None,
+            model_protocols: None,
+            model_enabled: None,
+            model_health: None,
+            model_settings: HashMap::new(),
+            bedrock_config: None,
+            is_full_url: false,
+            agent_scopes: vec![],
+            created_at: 0,
+            updated_at: 0,
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert!(json.get("agent_scopes").is_none(), "empty scopes stay off the wire");
+
+        let resp = ProviderResponse {
+            agent_scopes: vec!["claude".into()],
+            ..resp
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["agent_scopes"], serde_json::json!(["claude"]));
+    }
 
     #[test]
     fn test_update_provider_request_partial() {

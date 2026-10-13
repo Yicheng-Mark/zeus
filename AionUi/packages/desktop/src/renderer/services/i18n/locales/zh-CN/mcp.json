@@ -3,7 +3,6 @@
     "title": "MCP 集成",
     "description": "管理模型上下文协议服务器和工具"
   },
-  "label": "MCP",
   "servers": "服务器",
   "tools": "工具",
   "executionHistory": "执行历史",
@@ -25,10 +24,8 @@
   "result": "结果",
   "noParameters": "此工具没有参数",
   "noServers": "未配置 MCP 服务器",
-  "noServersFound": "未找到符合条件的服务器",
   "noTools": "无可用工具",
   "noExecutions": "无执行历史",
-  "searchServers": "搜索服务器...",
   "searchTools": "搜索工具...",
   "filterByStatus": "按状态筛选",
   "transport": "传输方式",

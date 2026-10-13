@@ -17,7 +17,7 @@ use aionui_db::{
     SqliteClientPreferenceRepository, SqliteFeedbackDiagnosticsRepository, SqliteProviderRepository,
     SqliteSettingsRepository, UserStatus, UserType, init_database_memory,
 };
-use aionui_system::{
+use aionui_system::{KnowledgeService,
     ClientPrefService, FeedbackDiagnosticsService, ModelFetchService, ProtocolDetectionService, ProviderService,
     RuntimePrepareService, SettingsService, SystemRouterState, VersionCheckService, settings_routes,
 };
@@ -44,6 +44,7 @@ fn build_state(db: &aionui_db::Database) -> SystemRouterState {
         feedback_diagnostics_service: FeedbackDiagnosticsService::new(Arc::new(
             SqliteFeedbackDiagnosticsRepository::new(db.pool().clone()),
         )),
+        knowledge_service: KnowledgeService::new(db.pool().clone(), std::env::temp_dir()),
     }
 }
 

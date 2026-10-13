@@ -37,6 +37,11 @@ export const FEEDBACK_MODULES = [
     tag: 'skills-plugin',
   },
   {
+    i18nKey: 'settings.bugReportModuleKnowledge',
+    descriptionI18nKey: 'settings.bugReportModuleKnowledgeDescription',
+    tag: 'knowledge-base',
+  },
+  {
     i18nKey: 'settings.bugReportModuleChannel',
     descriptionI18nKey: 'settings.bugReportModuleChannelDescription',
     tag: 'channel',

@@ -1,3 +1,4 @@
+import type { IMcpServer } from '@/common/config/storage';
 import { resolveExtensionAssetUrl } from '@/renderer/utils/platform';
 import { isBackendRelativeAssetPath, isLikelyLocalFilePath } from '@/renderer/utils/model/assistantAvatar';
 import type { AssistantListItem, AvailableBackend } from './types';
@@ -229,4 +230,44 @@ export const buildAssistantEditorBackends = (
   }
 
   return [...backendMap.values()];
+};
+
+/**
+ * Resolve persisted MCP default entries to catalog server ids.
+ *
+ * Generated assistants persist MCP server NAMES in `defaults.mcps.value` while
+ * the editor's write path (and the selection UI) speaks row ids. For each
+ * entry an exact id match wins; otherwise the entry is matched against server
+ * names. Entries matching no installed server are dropped — a save that does
+ * not touch the MCP section then simply will not re-write them, which is
+ * preferred over crashing or writing names back as ids.
+ */
+export const resolveMcpSelectionIds = (
+  entries: readonly string[] | undefined,
+  servers: readonly IMcpServer[]
+): string[] => {
+  if (!entries || entries.length === 0) {
+    return [];
+  }
+
+  const ids = new Set(servers.map((server) => server.id));
+  const idByName = new Map<string, string>();
+  for (const server of servers) {
+    if (server.name && !idByName.has(server.name)) {
+      idByName.set(server.name, server.id);
+    }
+  }
+
+  const resolved: string[] = [];
+  for (const entry of entries) {
+    if (ids.has(entry)) {
+      resolved.push(entry);
+      continue;
+    }
+    const byName = idByName.get(entry);
+    if (byName) {
+      resolved.push(byName);
+    }
+  }
+  return resolved;
 };

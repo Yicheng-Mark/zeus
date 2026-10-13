@@ -3,6 +3,11 @@ import { Down, Plus } from '@icon-park/react';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { BUILTIN_IMAGE_GEN_ID, BUILTIN_IMAGE_GEN_NAME, type IMcpServer } from '@/common/config/storage';
+import {
+  BUILTIN_BROWSER_MCP_NAME,
+  BUILTIN_CHROME_DEVTOOLS_MCP_NAME,
+  ZEUS_OPEN_DESIGN_MCP_NAME,
+} from '@/common/config/constants';
 import { useMcpConnection, useMcpModal, useMcpOAuth, useMcpServerCRUD, useMcpServers } from '@/renderer/hooks/mcp';
 import AddMcpServerModal from '../components/AddMcpServerModal';
 import McpServerItem from './McpServerItem';
@@ -11,8 +16,14 @@ interface McpManagementProps {
   message: ReturnType<typeof import('@arco-design/web-react').Message.useMessage>[0];
 }
 
+// Mode-assigned servers (browser / chrome-devtools / open-design, plus the
+// builtin image generator) reach conversations through the fixed per-agent
+// MCP presets, so they are intentionally not listed as manageable connectors.
 const isVisibleMcpServer = (server: IMcpServer) =>
-  !(server.builtin === true && (server.id === BUILTIN_IMAGE_GEN_ID || server.name === BUILTIN_IMAGE_GEN_NAME));
+  !(server.builtin === true && (server.id === BUILTIN_IMAGE_GEN_ID || server.name === BUILTIN_IMAGE_GEN_NAME)) &&
+  server.name !== BUILTIN_BROWSER_MCP_NAME &&
+  server.name !== BUILTIN_CHROME_DEVTOOLS_MCP_NAME &&
+  server.name !== ZEUS_OPEN_DESIGN_MCP_NAME;
 
 const isOAuthCapableServer = (server: IMcpServer) =>
   server.transport.type === 'http' || server.transport.type === 'sse' || server.transport.type === 'streamable_http';

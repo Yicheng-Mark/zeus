@@ -7,7 +7,15 @@ import { useAuth } from '@renderer/hooks/context/AuthContext';
 import { useLayoutContext } from '@renderer/hooks/context/LayoutContext';
 import { blurActiveElement } from '@renderer/utils/ui/focus';
 import { useThemeContext } from '@renderer/hooks/context/ThemeContext';
-import { SiderToolbar, SiderSearchEntry, SiderScheduledEntry, SiderAssistantEntry } from './SiderNav';
+import {
+  SiderToolbar,
+  SiderSearchEntry,
+  SiderScheduledEntry,
+  SiderAssistantEntry,
+  SiderSkillsEntry,
+  SiderConnectorsEntry,
+  SiderKnowledgeEntry,
+} from './SiderNav';
 import SiderFooter from './SiderFooter';
 import TeamSiderSection from './TeamSiderSection';
 import siderStyles from './Sider.module.css';
@@ -102,6 +110,21 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
     closePreview();
     setIsBatchMode(false);
     Promise.resolve(navigate('/assistants')).catch((error) => {
+      console.error('Navigation failed:', error);
+    });
+    if (onSessionClick) {
+      onSessionClick();
+    }
+  };
+
+  // Shared handler for the fixed top-level entries below Scheduled (Skills,
+  // Connectors, Knowledge): same close-out sequence, different destination.
+  const handleTopLevelNav = (path: string) => {
+    cleanupSiderTooltips();
+    blurActiveElement();
+    closePreview();
+    setIsBatchMode(false);
+    Promise.resolve(navigate(path)).catch((error) => {
       console.error('Navigation failed:', error);
     });
     if (onSessionClick) {
@@ -216,29 +239,41 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               siderTooltipProps={siderTooltipProps}
               onClick={handleScheduledClick}
             />
-            {/* Divider between fixed top nav and scrollable content area */}
-            <div
-              className={classNames(
-                'shrink-0 mt-6px mb-2px h-1px bg-[var(--color-border-2)]',
-                collapsed ? 'mx-6px' : 'mx-10px'
-              )}
+            {/* Skills nav entry - moved out of Settings to a top-level page */}
+            <SiderSkillsEntry
+              isMobile={isMobile}
+              isActive={pathname.startsWith('/skills')}
+              collapsed={collapsed}
+              siderTooltipProps={siderTooltipProps}
+              onClick={() => handleTopLevelNav('/skills')}
             />
-            {/* Scrollable content: pinned → team (slot) → projects → conversations */}
+            {/* Connectors (MCP) nav entry - moved out of Settings to a top-level page */}
+            <SiderConnectorsEntry
+              isMobile={isMobile}
+              isActive={pathname === '/connectors'}
+              collapsed={collapsed}
+              siderTooltipProps={siderTooltipProps}
+              onClick={() => handleTopLevelNav('/connectors')}
+            />
+            {/* Knowledge base nav entry - Obsidian-compatible local vault */}
+            <SiderKnowledgeEntry
+              isMobile={isMobile}
+              isActive={pathname.startsWith('/knowledge')}
+              collapsed={collapsed}
+              siderTooltipProps={siderTooltipProps}
+              onClick={() => handleTopLevelNav('/knowledge')}
+            />
+            {/* Teams sit directly under the knowledge base, above the scroll area */}
+            <TeamSiderSection
+              collapsed={collapsed}
+              pathname={pathname}
+              siderTooltipProps={siderTooltipProps}
+              onSessionClick={onSessionClick}
+            />
+            {/* Scrollable content: pinned → projects → conversations */}
             <div className={classNames('flex-1 min-h-0 overflow-y-auto', siderStyles.scrollArea)}>
               <Suspense fallback={<div className='min-h-200px' />}>
-                <WorkspaceGroupedHistory
-                  {...workspaceHistoryProps}
-                  afterPinnedContent={
-                    <>
-                      <TeamSiderSection
-                        collapsed={collapsed}
-                        pathname={pathname}
-                        siderTooltipProps={siderTooltipProps}
-                        onSessionClick={onSessionClick}
-                      />
-                    </>
-                  }
-                />
+                <WorkspaceGroupedHistory {...workspaceHistoryProps} />
               </Suspense>
             </div>
           </div>

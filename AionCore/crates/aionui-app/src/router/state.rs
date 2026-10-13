@@ -44,9 +44,9 @@ use aionui_shell::ShellRouterState;
 use aionui_sidebar::{ArchiveTeardownPorts, SidebarRouterState, SidebarService};
 use aionui_skill_runtime::{SkillRuntimeRouterState, SkillRuntimeService};
 use aionui_system::{
-    ClientPrefService, ConnectionTestRouterState, ConnectionTestService, FeedbackDiagnosticsService, ModelFetchService,
-    ProtocolDetectionService, ProviderService, RuntimePrepareService, SettingsService, SystemRouterState,
-    VersionCheckService,
+    ClientPrefService, ConnectionTestRouterState, ConnectionTestService, FeedbackDiagnosticsService,
+    KnowledgeService, ModelFetchService, ProtocolDetectionService, ProviderService, RuntimePrepareService,
+    SettingsService, SystemRouterState, VersionCheckService,
 };
 use aionui_team::{
     AgentTurnCancellationPort, AgentTurnExecutionPort, NativeSlashCommandPort, TeamAssistantCatalogEntry,
@@ -500,6 +500,7 @@ pub fn build_system_state(services: &AppServices) -> SystemRouterState {
         feedback_diagnostics_service: FeedbackDiagnosticsService::new(Arc::new(
             SqliteFeedbackDiagnosticsRepository::new(pool),
         )),
+        knowledge_service: KnowledgeService::new(services.database.pool().clone(), services.data_dir.clone()),
     }
 }
 

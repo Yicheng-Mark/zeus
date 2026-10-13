@@ -168,7 +168,9 @@ vi.mock('@arco-design/web-react', async (importOriginal) => {
     ]);
     const testId =
       mode === 'multiple'
-        ? 'model-select'
+        ? optionValues.has('aionrs')
+          ? 'agent-scopes-select'
+          : 'model-select'
         : optionValues.has('supported')
           ? 'vision-select'
           : optionValues.has('chat_completions')

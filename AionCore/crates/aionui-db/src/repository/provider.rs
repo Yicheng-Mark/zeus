@@ -43,6 +43,8 @@ pub struct CreateProviderParams<'a> {
     pub model_settings: &'a str,
     pub bedrock_config: Option<&'a str>,
     pub is_full_url: bool,
+    /// JSON array of agent backends this provider is scoped to. None = all agents.
+    pub agent_scopes: Option<&'a str>,
 }
 
 /// Parameters for updating an existing provider.
@@ -64,4 +66,5 @@ pub struct UpdateProviderParams<'a> {
     pub model_settings: Option<&'a str>,
     pub bedrock_config: Option<Option<&'a str>>,
     pub is_full_url: Option<bool>,
+    pub agent_scopes: Option<Option<&'a str>>,
 }

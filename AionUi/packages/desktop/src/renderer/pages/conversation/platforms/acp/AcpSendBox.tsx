@@ -1,5 +1,4 @@
 import { ipcBridge } from '@/common';
-import type { IConversationMcpStatus } from '@/common/config/storage';
 import { isBackendHttpError } from '@/common/adapter/httpBridge';
 import { isSideQuestionSupported } from '@/common/chat/sideQuestion';
 import { parseError, uuid } from '@/common/utils';
@@ -47,7 +46,7 @@ import { localSelectionItems, mergeFileSelectionItems } from '@/renderer/utils/f
 import { collectChatFileRefs, splitChatFileRefs } from '@/renderer/utils/file/messageFiles';
 import type { ChatFileRef } from '@/common/types/chatFile';
 import { Button, Message, Tag } from '@arco-design/web-react';
-import { Brain, Lightning, MagicHat, Shield } from '@icon-park/react';
+import { Brain, Lightning, Shield } from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { classifyConversationBusyError } from '../conversationBusyError';
@@ -134,14 +133,6 @@ const AcpSendBox: React.FC<{
   const layout = useLayoutContext();
   const isMobile = Boolean(layout?.isMobile);
   const conversationContext = useConversationContextSafe();
-  const loadedSkills = conversationContext?.loadedSkills ?? [];
-  const loadedMcpStatuses =
-    conversationContext?.loadedMcpStatuses ??
-    (conversationContext?.loadedMcpServers ?? []).map<IConversationMcpStatus>((name) => ({
-      id: name,
-      name,
-      status: 'loaded',
-    }));
   const promptCapability = conversationContext?.promptCapability;
   // Hint shown on a media chip when the agent takes no native image/audio
   // blocks — the attachment then reaches it as a file path. SVG is never
@@ -630,52 +621,6 @@ Please check your local CLI tool authentication status`,
       });
     });
 
-    if (loadedSkills.length > 0) {
-      const skillOptions: MobileActionSheetOption[] = loadedSkills.map((name) => ({
-        key: name,
-        label: `/${name}`,
-      }));
-      entries.push({
-        key: 'skills',
-        icon: <MagicHat theme='outline' size='16' />,
-        label: t('common.selectedSkills', { defaultValue: 'Selected skills' }),
-        variant: 'muted',
-        submenu: {
-          title: t('common.selectedSkills', { defaultValue: 'Selected skills' }),
-          selectable: false,
-          options: skillOptions,
-          onSelect: (name) => {
-            setContent(`/${name} `);
-          },
-        },
-      });
-    }
-
-    if (loadedMcpStatuses.length > 0) {
-      const mcpOptions: MobileActionSheetOption[] = loadedMcpStatuses.map((item) => ({
-        key: item.id,
-        label: item.name,
-        description:
-          item.status === 'loaded'
-            ? undefined
-            : item.reason
-              ? `${t(`conversation.mcp.status.${item.status}` as const)} · ${item.reason}`
-              : t(`conversation.mcp.status.${item.status}` as const),
-      }));
-      entries.push({
-        key: 'mcp',
-        icon: <Shield theme='outline' size='16' />,
-        label: t('conversation.mcp.selected', { defaultValue: 'Selected MCP' }),
-        variant: 'muted',
-        submenu: {
-          title: t('conversation.mcp.selected', { defaultValue: 'Selected MCP' }),
-          selectable: false,
-          options: mcpOptions,
-          onSelect: () => undefined,
-        },
-      });
-    }
-
     return entries;
   }, [
     attachEntries,
@@ -684,8 +629,6 @@ Please check your local CLI tool authentication status`,
     handleSheetModeChange,
     handleThoughtLevelSetOption,
     isMobile,
-    loadedMcpStatuses,
-    loadedSkills,
     model_info,
     runtimeMode,
     runtimeThoughtLevel,
@@ -841,13 +784,7 @@ Please check your local CLI tool authentication status`,
         supportedExts={allSupportedExts}
         defaultMultiLine={!isMobile}
         lockMultiLine={!isMobile}
-        tools={
-          <FileAttachButton
-            openFileSelector={openFileSelector}
-            onLocalFilesAdded={handleFilesAdded}
-            loadedMcpStatuses={loadedMcpStatuses}
-          />
-        }
+        tools={<FileAttachButton openFileSelector={openFileSelector} onLocalFilesAdded={handleFilesAdded} />}
         rightTools={
           <div className='flex items-center gap-8px min-w-0'>
             {showModeSelector && (

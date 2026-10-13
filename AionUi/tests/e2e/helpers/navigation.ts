@@ -16,8 +16,9 @@ export const ROUTES = {
     model: '#/settings/model',
     agent: '#/settings/agent',
     assistants: '#/settings/assistants',
-    skills: '#/settings/skills',
-    tools: '#/settings/tools',
+    // Skills and Tools were promoted from settings tabs to top-level pages.
+    skills: '#/skills',
+    tools: '#/connectors',
     display: '#/settings/appearance',
     webui: '#/settings/webui',
     system: '#/settings/system',

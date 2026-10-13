@@ -1,5 +1,12 @@
 import type { IProvider } from '@/common/config/storage';
 import {
+  type AgentScopeBackend,
+  AGENT_SCOPE_LABEL_KEYS,
+  DEFAULT_AGENT_SCOPES,
+  filterScopesForPlatform,
+  platformSupportsAgent,
+} from '@/common/utils/agentScopes';
+import {
   type ModelImageInputChoice,
   type ModelOpenAiApiModeChoice,
   supportsOpenAiApiMode,
@@ -25,6 +32,7 @@ const AddModelModal = ModalHOC<{ data?: IProvider; model?: string; onSubmit: (mo
     const [modelProtocol, setModelProtocol] = useState<string>('openai');
     const [imageInput, setImageInput] = useState<ModelImageInputChoice>('auto');
     const [openAiApiMode, setOpenAiApiMode] = useState<ModelOpenAiApiModeChoice>('auto');
+    const [agentScopes, setAgentScopes] = useState<AgentScopeBackend[]>(DEFAULT_AGENT_SCOPES);
     const isNewApi = isNewApiPlatform(data?.platform ?? '');
     const isEditing = Boolean(editingModel);
     const { data: modelList, isLoading } = useModeModeList(data?.platform, data?.base_url, data?.api_key);
@@ -47,6 +55,7 @@ const AddModelModal = ModalHOC<{ data?: IProvider; model?: string; onSubmit: (mo
       setImageInput(settings?.image_input ?? 'auto');
       setOpenAiApiMode(settings?.openai_api_mode ?? 'auto');
       setModelProtocol(editingModel ? (data?.model_protocols?.[editingModel] ?? 'openai') : 'openai');
+      setAgentScopes(filterScopesForPlatform((data?.agent_scopes as AgentScopeBackend[]) ?? DEFAULT_AGENT_SCOPES, data?.platform));
     }, [data, editingModel, modalProps.visible]);
 
     const handleConfirm = useCallback(() => {
@@ -55,6 +64,7 @@ const AddModelModal = ModalHOC<{ data?: IProvider; model?: string; onSubmit: (mo
       const updatedData: IProvider = {
         ...data,
         models: editingModel ? existingModels : [...existingModels, ...models],
+        agent_scopes: agentScopes.length > 0 ? agentScopes : undefined,
         model_settings: updateModelSettings(
           data.model_settings,
           targetModels,
@@ -81,6 +91,7 @@ const AddModelModal = ModalHOC<{ data?: IProvider; model?: string; onSubmit: (mo
       isNewApi,
       modelProtocol,
       models,
+      agentScopes,
       onSubmit,
       openAiApiMode,
       modalCtrl,
@@ -170,6 +181,22 @@ const AddModelModal = ModalHOC<{ data?: IProvider; model?: string; onSubmit: (mo
               <div className='text-11px text-t-secondary leading-4'>{t('settings.openAiApiModeTip')}</div>
             </div>
           )}
+
+          {/* 适用于哪些助手 / Which assistants can use these models */}
+          <div className='space-y-8px'>
+            <div className='text-13px font-500 text-t-secondary'>{t('settings.agentScopes')}</div>
+            <Select
+              mode='multiple'
+              value={agentScopes}
+              onChange={(value: AgentScopeBackend[]) => setAgentScopes(value)}
+              options={(['aionrs', 'claude', 'opencode'] as AgentScopeBackend[]).map((backend) => ({
+                label: t(AGENT_SCOPE_LABEL_KEYS[backend]),
+                value: backend,
+                disabled: !platformSupportsAgent(data?.platform, backend, modelProtocol),
+              }))}
+            />
+            <div className='text-11px text-t-secondary leading-4'>{t('settings.agentScopesTip')}</div>
+          </div>
 
           {!isEditing && models.length > 1 && (
             <div className='text-11px text-t-secondary leading-4'>{t('settings.modelSettingsApplyToSelected')}</div>

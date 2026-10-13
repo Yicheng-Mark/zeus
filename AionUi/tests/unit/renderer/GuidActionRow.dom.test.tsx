@@ -8,7 +8,6 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import GuidActionRow from '@/renderer/pages/guid/components/GuidActionRow';
-import type { IMcpServer } from '@/common/config/storage';
 import { ipcBridge } from '@/common';
 
 const environment = vi.hoisted(() => ({ isMobile: false, isDesktop: true }));
@@ -93,13 +92,6 @@ vi.mock('@arco-design/web-react', () => {
           {children}
         </div>
       ),
-      // SubMenu renders both the title row and its children so tests can inspect both levels.
-      SubMenu: ({ children, title }: { children?: React.ReactNode; title?: React.ReactNode }) => (
-        <div role='group'>
-          <div data-testid='submenu-title'>{title}</div>
-          <div data-testid='submenu-body'>{children}</div>
-        </div>
-      ),
     }
   );
   return {
@@ -118,20 +110,6 @@ vi.mock('@arco-design/web-react', () => {
         {children}
       </button>
     ),
-    Checkbox: ({
-      children,
-      checked,
-      onChange,
-    }: {
-      children?: React.ReactNode;
-      checked?: boolean;
-      onChange?: () => void;
-    }) => (
-      <label>
-        <input type='checkbox' checked={checked ?? false} onChange={() => onChange?.()} />
-        {children}
-      </label>
-    ),
     Dropdown: ({ children, droplist }: { children?: React.ReactNode; droplist?: React.ReactNode }) => (
       <div>
         {children}
@@ -143,12 +121,6 @@ vi.mock('@arco-design/web-react', () => {
     Tooltip: ({ children }: { children?: React.ReactNode }) => <span>{children}</span>,
   };
 });
-
-const makeSkills = (count: number) =>
-  Array.from({ length: count }, (_, i) => ({ name: `skill-${i}`, description: '', isAuto: false }));
-
-const makeMcpServers = (count: number): IMcpServer[] =>
-  Array.from({ length: count }, (_, i) => ({ id: `mcp-${i}`, name: `server-${i}` }) as IMcpServer);
 
 const renderActionRow = (overrides: Partial<React.ComponentProps<typeof GuidActionRow>> = {}) =>
   render(
@@ -165,13 +137,6 @@ const renderActionRow = (overrides: Partial<React.ComponentProps<typeof GuidActi
       setSelectedAcpModel={vi.fn()}
       selectedMode=''
       onModeSelect={vi.fn()}
-      allSkills={makeSkills(8)}
-      disabledBuiltinSkills={[]}
-      enabledSkills={[]}
-      onToggleSkill={vi.fn()}
-      mcpServers={makeMcpServers(8)}
-      selectedMcpServerIds={[]}
-      onToggleMcpServer={vi.fn()}
       loading={false}
       isButtonDisabled={false}
       onSend={vi.fn()}
@@ -179,7 +144,7 @@ const renderActionRow = (overrides: Partial<React.ComponentProps<typeof GuidActi
     />
   );
 
-describe('GuidActionRow skill/MCP submenu search', () => {
+describe('GuidActionRow attach actions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     environment.isMobile = false;
@@ -189,10 +154,19 @@ describe('GuidActionRow skill/MCP submenu search', () => {
   it('offers both host files and device upload in the mobile WebUI action sheet', () => {
     environment.isMobile = true;
     environment.isDesktop = false;
-    renderActionRow({ allSkills: [], mcpServers: [] });
+    renderActionRow();
 
     expect(screen.getByTestId('attach-host-files')).toHaveTextContent('Add files');
     expect(screen.getByTestId('attach-my-device')).toHaveTextContent('Upload from device');
+  });
+
+  it('keeps the mobile sheet free of skill and MCP entries', () => {
+    environment.isMobile = true;
+    environment.isDesktop = false;
+    renderActionRow();
+
+    expect(screen.queryByTestId('skills')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('mcp')).not.toBeInTheDocument();
   });
 
   it('adds files selected from the host picker in mobile WebUI', async () => {
@@ -200,74 +174,20 @@ describe('GuidActionRow skill/MCP submenu search', () => {
     environment.isDesktop = false;
     const onFilesPicked = vi.fn();
     vi.mocked(ipcBridge.dialog.showOpen.invoke).mockResolvedValue(['/host/project/a.txt']);
-    renderActionRow({ allSkills: [], mcpServers: [], onFilesPicked });
+    renderActionRow({ onFilesPicked });
 
     fireEvent.click(screen.getByTestId('attach-host-files'));
 
     await waitFor(() => expect(onFilesPicked).toHaveBeenCalledWith(['/host/project/a.txt']));
   });
 
-  it('shows both search boxes when skills and MCP servers exceed the threshold', () => {
+  it('offers only file entries in the desktop "+" dropdown', () => {
     renderActionRow();
 
-    expect(screen.getByTestId('guid-skill-search')).toBeInTheDocument();
-    expect(screen.getByTestId('guid-mcp-search')).toBeInTheDocument();
-  });
-
-  it('hides the search boxes when the lists are at or below the threshold', () => {
-    renderActionRow({ allSkills: makeSkills(5), mcpServers: makeMcpServers(5) });
-
-    expect(screen.queryByTestId('guid-skill-search')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('guid-mcp-search')).not.toBeInTheDocument();
-    // Lists still render in full.
-    expect(screen.getByText('skill-4')).toBeInTheDocument();
-    expect(screen.getByText('server-4')).toBeInTheDocument();
-  });
-
-  it('filters skills case-insensitively and keeps other items hidden', () => {
-    renderActionRow();
-
-    fireEvent.change(screen.getByTestId('guid-skill-search'), { target: { value: 'SKILL-3' } });
-
-    expect(screen.getByText('skill-3')).toBeInTheDocument();
-    expect(screen.queryByText('skill-4')).not.toBeInTheDocument();
-    // MCP list is untouched by the skill query.
-    expect(screen.getByText('server-4')).toBeInTheDocument();
-  });
-
-  it('filters MCP servers independently from skills', () => {
-    renderActionRow();
-
-    fireEvent.change(screen.getByTestId('guid-mcp-search'), { target: { value: 'server-2' } });
-
-    expect(screen.getByText('server-2')).toBeInTheDocument();
-    expect(screen.queryByText('server-3')).not.toBeInTheDocument();
-    expect(screen.getByText('skill-3')).toBeInTheDocument();
-  });
-
-  it('shows an empty state when no skill matches', () => {
-    renderActionRow();
-
-    fireEvent.change(screen.getByTestId('guid-skill-search'), { target: { value: 'zzz' } });
-
-    expect(screen.getByText('No matching skills.')).toBeInTheDocument();
-  });
-
-  it('shows an empty state when no MCP server matches', () => {
-    renderActionRow();
-
-    fireEvent.change(screen.getByTestId('guid-mcp-search'), { target: { value: 'zzz' } });
-
-    expect(screen.getByText('No servers found matching your criteria')).toBeInTheDocument();
-  });
-
-  it('still toggles a skill from a filtered list', () => {
-    const onToggleSkill = vi.fn();
-    renderActionRow({ onToggleSkill });
-
-    fireEvent.change(screen.getByTestId('guid-skill-search'), { target: { value: 'skill-3' } });
-    fireEvent.click(screen.getByText('skill-3').closest('[role="menuitem"]')!);
-
-    expect(onToggleSkill).toHaveBeenCalledWith('skill-3', false);
+    // The mocked t() returns the key when no defaultValue is supplied.
+    expect(screen.getByTestId('dropdown-menu')).toHaveTextContent('common.fileAttach.addFiles');
+    // Per-conversation skill/MCP selection is gone from the guid flow.
+    expect(screen.getByTestId('dropdown-menu')).not.toHaveTextContent('settings.capabilitiesTab.skills');
+    expect(screen.getByTestId('dropdown-menu')).not.toHaveTextContent('mcp.label');
   });
 });

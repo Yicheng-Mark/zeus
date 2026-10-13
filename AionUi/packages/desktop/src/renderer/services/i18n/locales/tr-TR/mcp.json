@@ -3,7 +3,6 @@
     "title": "MCP Entegrasyonu",
     "description": "Model Bağlam Protokolü sunucularını ve araçlarını yönet"
   },
-  "label": "MCP",
   "servers": "Sunucular",
   "tools": "Araçlar",
   "executionHistory": "Yürütme Geçmişi",
@@ -25,10 +24,8 @@
   "result": "Sonuç",
   "noParameters": "Bu aracın parametresi yok",
   "noServers": "Yapılandırılmış MCP sunucusu yok",
-  "noServersFound": "Kriterlere uygun sunucu bulunamadı",
   "noTools": "Mevcut araç yok",
   "noExecutions": "Yürütme geçmişi yok",
-  "searchServers": "Sunucularda ara...",
   "searchTools": "Araçlarda ara...",
   "filterByStatus": "Duruma göre filtrele",
   "transport": "İletim",

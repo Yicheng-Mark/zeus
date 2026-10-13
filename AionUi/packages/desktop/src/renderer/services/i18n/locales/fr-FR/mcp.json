@@ -3,7 +3,6 @@
     "title": "Intégration MCP",
     "description": "Gérer les serveurs et outils du protocole Model Context Protocol"
   },
-  "label": "PCM",
   "servers": "Serveurs",
   "tools": "Outils",
   "executionHistory": "Historique d'exécution",
@@ -25,10 +24,8 @@
   "result": "Résultat",
   "noParameters": "Cet outil n'a pas de paramètres",
   "noServers": "Aucun serveur MCP configuré",
-  "noServersFound": "Aucun serveur trouvé correspondant à vos critères",
   "noTools": "Aucun outil disponible",
   "noExecutions": "Aucun historique d'exécution",
-  "searchServers": "Rechercher des serveurs...",
   "searchTools": "Rechercher des outils...",
   "filterByStatus": "Filtrer par statut",
   "transport": "Transport",

@@ -3,7 +3,6 @@
     "title": "MCP 통합",
     "description": "모델 컨텍스트 프로토콜 서버 및 도구 관리"
   },
-  "label": "MCP",
   "servers": "서버",
   "tools": "도구",
   "executionHistory": "실행 기록",
@@ -25,10 +24,8 @@
   "result": "결과",
   "noParameters": "이 도구에는 매개변수가 없습니다",
   "noServers": "구성된 MCP 서버 없음",
-  "noServersFound": "조건에 맞는 서버를 찾을 수 없음",
   "noTools": "사용 가능한 도구 없음",
   "noExecutions": "실행 기록 없음",
-  "searchServers": "서버 검색...",
   "searchTools": "도구 검색...",
   "filterByStatus": "상태별 필터링",
   "transport": "전송",

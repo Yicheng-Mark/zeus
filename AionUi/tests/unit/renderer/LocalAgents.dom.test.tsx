@@ -32,9 +32,6 @@ const { messageSuccess, messageWarning, messageError } = vi.hoisted(() => ({
   messageWarning: vi.fn(),
   messageError: vi.fn(),
 }));
-const { openExternalUrl } = vi.hoisted(() => ({
-  openExternalUrl: vi.fn().mockResolvedValue(undefined),
-}));
 vi.mock('@arco-design/web-react', async () => {
   const actual = await vi.importActual<typeof import('@arco-design/web-react')>('@arco-design/web-react');
   return {
@@ -74,14 +71,6 @@ vi.mock('@/common', () => ({
     },
   },
 }));
-
-vi.mock('@renderer/utils/platform', async () => {
-  const actual = await vi.importActual<typeof import('@renderer/utils/platform')>('@renderer/utils/platform');
-  return {
-    ...actual,
-    openExternalUrl,
-  };
-});
 
 import LocalAgents from '@renderer/pages/settings/AgentSettings/LocalAgents';
 import AgentModalContent from '@renderer/components/settings/SettingsModal/contents/AgentModalContent';
@@ -257,20 +246,6 @@ describe('LocalAgents', () => {
     expect(screen.queryByText('settings.agentManagement.discoverMoreAgents')).toBeNull();
   });
 
-  it('renders the setup-guide action for official agents diagnostics', () => {
-    useManagedAgents.mockReturnValue({
-      agents: makeAgents(),
-      revalidate: vi.fn(),
-      refreshCatalog: vi.fn(),
-    });
-
-    render(<LocalAgents />);
-
-    fireEvent.click(screen.getByText('settings.agentManagement.localAgentsSetupLink'));
-
-    expect(openExternalUrl).toHaveBeenCalledWith('https://github.com/iOfficeAI/AionUi/wiki/ACP-Setup');
-  });
-
   it('binds assistants to managed agents by agent_id instead of runtime backend', () => {
     const [aionrsAgent, claudeAgent] = makeAgents();
     const assistants: Assistant[] = [
@@ -376,7 +351,7 @@ describe('LocalAgents', () => {
     expect(screen.queryByText('settings.agentManagement.localAgents')).toBeNull();
   });
 
-  it('renders the availability filter as underline tabs and switches the visible official agents', () => {
+  it('renders only the "all" availability tab and no isolated-runtime card', () => {
     useManagedAgents.mockReturnValue({
       agents: makeAgents(),
       revalidate: vi.fn(),
@@ -385,24 +360,15 @@ describe('LocalAgents', () => {
 
     render(<LocalAgents />);
 
-    // Filter tabs render as buttons (underline-tab style), not an Arco radio group.
-    const allTab = screen.getByTestId('settings-tab-all');
-    const availableTab = screen.getByTestId('settings-tab-available');
-    const unavailableTab = screen.getByTestId('settings-tab-unavailable');
-    expect(allTab.tagName).toBe('BUTTON');
-
-    // Default "all": both official agents visible (Aion CLI online, Claude Code missing).
+    // The availability filter collapsed to a single "All" tab.
+    expect(screen.getByTestId('settings-tab-all')).toBeInTheDocument();
+    expect(screen.queryByTestId('settings-tab-available')).toBeNull();
+    expect(screen.queryByTestId('settings-tab-unavailable')).toBeNull();
+    // Both agents stay listed regardless of status.
     expect(screen.getByText('Aion CLI')).toBeInTheDocument();
     expect(screen.getByText('Claude Code')).toBeInTheDocument();
-
-    // "available" keeps only the online agent.
-    fireEvent.click(availableTab);
-    expect(screen.getByText('Aion CLI')).toBeInTheDocument();
-    expect(screen.queryByText('Claude Code')).toBeNull();
-
-    // "unavailable" keeps only the non-online agent.
-    fireEvent.click(unavailableTab);
-    expect(screen.queryByText('Aion CLI')).toBeNull();
-    expect(screen.getByText('Claude Code')).toBeInTheDocument();
+    // The isolated-runtime health card and setup-guide link were removed.
+    expect(screen.queryByTestId('isolated-runtime-card')).toBeNull();
+    expect(screen.queryByText('settings.agentManagement.localAgentsSetupLink')).toBeNull();
   });
 });

@@ -47,6 +47,19 @@ export const BROWSER_SESSION_PARTITION = 'persist:aionui-browser';
  */
 export const BUILTIN_BROWSER_MCP_NAME = 'aionui-browser';
 
+/**
+ * 模式 MCP 的注册名 —— 这三个已按 zeus_mode_presets.rs 固定分配给
+ * 办公/设计/开发 三个 agent（会话创建时按名解析、不受全局 enabled 影响），
+ * 不再作为可管理的连接器展示。
+ *
+ * Registered names of the three mode-assigned MCP servers. They are pinned to
+ * the 办公/设计/开发 agents by the Rust mode presets (resolved by name at
+ * conversation create, independent of the global enabled flag) and are no
+ * longer listed as manageable connectors.
+ */
+export const BUILTIN_CHROME_DEVTOOLS_MCP_NAME = 'chrome-devtools';
+export const ZEUS_OPEN_DESIGN_MCP_NAME = 'open-design';
+
 // ===== 文件处理相关常量 =====
 
 /** 临时文件时间戳分隔符 */

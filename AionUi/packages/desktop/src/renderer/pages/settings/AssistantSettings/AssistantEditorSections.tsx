@@ -1,4 +1,5 @@
 import { ipcBridge } from '@/common';
+import { type AgentScopeBackend, platformSupportsAgent, providerServesAgent } from '@/common/utils/agentScopes';
 import type { AssistantEditorViewModel, AssistantListItem } from './types';
 import { useManagedAgentRuntimeCatalog } from '@/renderer/hooks/agent/useManagedAgents';
 import { useModelProviderList } from '@/renderer/hooks/agent/useModelProviderList';
@@ -142,13 +143,25 @@ const AssistantEditorSections: React.FC<AssistantEditorSectionsProps> = ({ edito
   const showSkills = isCreating || activeAssistant !== null;
   const currentBackend = availableBackends.find((option) => option.id === editAgent);
   const editAgentRuntimeKey = currentBackend?.runtimeKey || '';
-  const providerModelOptions = providers.flatMap((provider) =>
-    getAvailableModels(provider).map((modelName) => ({
-      key: `${provider.id}-${modelName}`,
-      value: modelName,
-      label: `${provider.name || provider.id} · ${modelName}`,
-    }))
-  );
+  // Provider-derived model options, scoped to the assistant being edited.
+  // opencode addresses injected providers as `zeus-<providerId>/<model>`; the
+  // other engines use the bare model id.
+  const providerModelOptions = useMemo(() => {
+    const runtime = (editAgentRuntimeKey || 'aionrs') as AgentScopeBackend;
+    return providers
+      .filter((provider) => providerServesAgent(provider, runtime))
+      .flatMap((provider) =>
+        getAvailableModels(provider)
+          .filter((modelName) =>
+            platformSupportsAgent(provider.platform, runtime, provider.model_protocols?.[modelName])
+          )
+          .map((modelName) => ({
+            key: `${provider.id}-${modelName}`,
+            value: runtime === 'opencode' ? `zeus-${provider.id}/${modelName}` : modelName,
+            label: `${provider.name || provider.id} · ${modelName}`,
+          }))
+      );
+  }, [providers, getAvailableModels, editAgentRuntimeKey]);
   const currentAgentRuntimeCatalog = useMemo(
     () =>
       currentBackend
@@ -165,25 +178,30 @@ const AssistantEditorSections: React.FC<AssistantEditorSectionsProps> = ({ edito
       return providerModelOptions;
     }
 
+    const catalogOptions: Array<{ key: string; value: string; label: string; description?: string }> = [];
     if (currentAgentRuntimeModelInfo && currentAgentRuntimeModelInfo.available_models.length > 0) {
-      return currentAgentRuntimeModelInfo.available_models.map((model) => ({
-        key: `${editAgent}-${model.id}`,
-        value: model.id,
-        label: model.label,
-        description: model.description,
-      }));
+      catalogOptions.push(
+        ...currentAgentRuntimeModelInfo.available_models.map((model) => ({
+          key: `${editAgent}-${model.id}`,
+          value: model.id,
+          label: model.label,
+          description: model.description,
+        }))
+      );
+    } else if (currentBackend && currentBackend.modelOptions.length > 0) {
+      catalogOptions.push(
+        ...currentBackend.modelOptions.map((model: { value: string; label: string; description?: string }) => ({
+          key: `${editAgent}-${model.value}`,
+          value: model.value,
+          label: model.label,
+          description: model.description,
+        }))
+      );
     }
 
-    if (currentBackend && currentBackend.modelOptions.length > 0) {
-      return currentBackend.modelOptions.map((model: { value: string; label: string; description?: string }) => ({
-        key: `${editAgent}-${model.value}`,
-        value: model.value,
-        label: model.label,
-        description: model.description,
-      }));
-    }
-
-    return [];
+    // CLI engines (办公/开发): the user's scoped provider lineup comes first,
+    // the engine's own runtime catalog after it.
+    return [...providerModelOptions, ...catalogOptions];
   }, [currentAgentRuntimeModelInfo, currentBackend, editAgent, editAgentRuntimeKey, providerModelOptions]);
   const permissionOptions = useMemo<AgentModeOption[]>(
     () =>

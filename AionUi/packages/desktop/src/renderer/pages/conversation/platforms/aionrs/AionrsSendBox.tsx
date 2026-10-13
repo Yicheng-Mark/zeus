@@ -5,7 +5,6 @@
  */
 
 import { ipcBridge } from '@/common';
-import type { IConversationMcpStatus } from '@/common/config/storage';
 import AgentModeSelector from '@/renderer/components/agent/AgentModeSelector';
 import CommandQueuePanel from '@/renderer/components/chat/CommandQueuePanel';
 import MobileActionSheet, {
@@ -19,7 +18,6 @@ import FileAttachButton from '@/renderer/components/media/FileAttachButton';
 import FilePreview from '@/renderer/components/media/FilePreview';
 import HorizontalFileList from '@/renderer/components/media/HorizontalFileList';
 import { classifyConfigSetError, useAcpConfigOptions } from '@/renderer/hooks/agent/useAcpConfigOptions';
-import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { useAutoTitle } from '@/renderer/hooks/chat/useAutoTitle';
 import { getSendBoxDraftHook, type FileOrFolderItem } from '@/renderer/hooks/chat/useSendBoxDraft';
@@ -49,7 +47,7 @@ import { localSelectionItems, mergeFileSelectionItems } from '@/renderer/utils/f
 import { collectChatFileRefs, splitChatFileRefs } from '@/renderer/utils/file/messageFiles';
 import type { AgentModeOption } from '@/renderer/utils/model/agentTypes';
 import { Button, Message, Tag } from '@arco-design/web-react';
-import { Brain, Lightning, MagicHat, Shield } from '@icon-park/react';
+import { Brain, Lightning, Shield } from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { classifyConversationBusyError } from '../conversationBusyError';
@@ -129,15 +127,6 @@ const AionrsSendBox: React.FC<{
   const [isMobileSheetOpen, setIsMobileSheetOpen] = useState(false);
   const layout = useLayoutContext();
   const isMobile = Boolean(layout?.isMobile);
-  const conversationContext = useConversationContextSafe();
-  const loadedSkills = conversationContext?.loadedSkills ?? [];
-  const loadedMcpStatuses =
-    conversationContext?.loadedMcpStatuses ??
-    (conversationContext?.loadedMcpServers ?? []).map<IConversationMcpStatus>((name) => ({
-      id: name,
-      name,
-      status: 'loaded',
-    }));
   const { t } = useTranslation();
   const { checkAndUpdateTitle } = useAutoTitle();
   const { current_model } = modelSelection;
@@ -603,52 +592,6 @@ const AionrsSendBox: React.FC<{
       });
     }
 
-    if (loadedSkills.length > 0) {
-      const skillOptions: MobileActionSheetOption[] = loadedSkills.map((name) => ({
-        key: name,
-        label: `/${name}`,
-      }));
-      entries.push({
-        key: 'skills',
-        icon: <MagicHat theme='outline' size='16' />,
-        label: t('common.selectedSkills', { defaultValue: 'Selected skills' }),
-        variant: 'muted',
-        submenu: {
-          title: t('common.selectedSkills', { defaultValue: 'Selected skills' }),
-          selectable: false,
-          options: skillOptions,
-          onSelect: (name) => {
-            setContent(`/${name} `);
-          },
-        },
-      });
-    }
-
-    if (loadedMcpStatuses.length > 0) {
-      const mcpOptions: MobileActionSheetOption[] = loadedMcpStatuses.map((item) => ({
-        key: item.id,
-        label: item.name,
-        description:
-          item.status === 'loaded'
-            ? undefined
-            : item.reason
-              ? `${t(`conversation.mcp.status.${item.status}` as const)} · ${item.reason}`
-              : t(`conversation.mcp.status.${item.status}` as const),
-      }));
-      entries.push({
-        key: 'mcp',
-        icon: <Shield theme='outline' size='16' />,
-        label: t('conversation.mcp.selected', { defaultValue: 'Selected MCP' }),
-        variant: 'muted',
-        submenu: {
-          title: t('conversation.mcp.selected', { defaultValue: 'Selected MCP' }),
-          selectable: false,
-          options: mcpOptions,
-          onSelect: () => undefined,
-        },
-      });
-    }
-
     return entries;
   }, [
     attachEntries,
@@ -657,8 +600,6 @@ const AionrsSendBox: React.FC<{
     handleSheetModeChange,
     handleSheetModelSelect,
     isMobile,
-    loadedMcpStatuses,
-    loadedSkills,
     modelSelection,
     runtimeConfig,
     runtimeMode,
@@ -794,13 +735,7 @@ const AionrsSendBox: React.FC<{
         supportedExts={allSupportedExts}
         defaultMultiLine={!isMobile}
         lockMultiLine={!isMobile}
-        tools={
-          <FileAttachButton
-            openFileSelector={openFileSelector}
-            onLocalFilesAdded={handleFilesAdded}
-            loadedMcpStatuses={loadedMcpStatuses}
-          />
-        }
+        tools={<FileAttachButton openFileSelector={openFileSelector} onLocalFilesAdded={handleFilesAdded} />}
         rightTools={
           <div className='flex items-center gap-8px min-w-0'>
             <AgentModeSelector

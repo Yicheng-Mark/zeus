@@ -20,6 +20,7 @@ mod cron;
 mod custom_agent;
 mod extension;
 mod file;
+mod knowledge;
 mod lifecycle;
 mod mcp;
 mod office;
@@ -123,6 +124,10 @@ pub use extension::{
     DisableExtensionRequest, EnableExtensionRequest, ExtensionSummaryResponse, GetI18nRequest, GetPermissionsRequest,
     GetRiskLevelRequest, HubExtensionListItem, HubExtensionListResponse, HubOperationResponse, HubUpdateInfo,
     InstallExtensionRequest, PermissionDetailResponse, PermissionSummaryResponse,
+};
+pub use knowledge::{
+    CreateKnowledgeNoteRequest, KnowledgeBacklinksResponse, KnowledgeListQuery, KnowledgeNote,
+    KnowledgeNoteSummary, KnowledgeReindexResponse, UpdateKnowledgeNoteRequest,
 };
 pub use file::{
     ContentEncoding, ContentMetadataRequest, CopyFailure, CopyFilesRequest, CopyFilesResponse, CopyTarget,

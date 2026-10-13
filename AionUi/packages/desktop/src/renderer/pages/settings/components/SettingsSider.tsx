@@ -4,18 +4,14 @@ import { type IExtensionSettingsTab } from '@/common/adapter/ipcBridge';
 import { useExtI18n } from '@/renderer/hooks/system/useExtI18n';
 import { useExtensionSettingsTabs } from '@/renderer/hooks/system/useExtensionSettingsTabs';
 import {
-  Cat,
   Communication,
   Computer,
   Earth,
   Inbox,
   Info,
-  Lightning,
-  LinkCloud,
   Puzzle,
   Speed,
   System,
-  Toolkit,
 } from '@icon-park/react';
 import classNames from 'classnames';
 import React, { useMemo } from 'react';
@@ -24,19 +20,9 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Tooltip } from '@arco-design/web-react';
 import { getSiderTooltipProps } from '@/renderer/utils/ui/siderTooltip';
 
-/** Builtin settings tab IDs in display order (must match router paths). */
-export const BUILTIN_TAB_IDS = [
-  'agent',
-  'model',
-  'skills',
-  'tools',
-  'appearance',
-  'webui',
-  'pet',
-  'system',
-  'archived',
-  'about',
-] as const;
+/** Builtin settings tab IDs in display order (must match router paths).
+ *  Skills and Tools live as top-level sidebar pages (/skills, /connectors). */
+export const BUILTIN_TAB_IDS = ['agent', 'appearance', 'webui', 'system', 'archived', 'about'] as const;
 
 /**
  * Legacy anchor IDs that have been merged into other tabs.
@@ -85,24 +71,11 @@ const SettingsSider: React.FC<{ collapsed?: boolean; tooltipEnabled?: boolean }>
   const { menus, groupHeaderAt } = useMemo(() => {
     // Build builtin items
     const builtinMap: Record<string, SiderItem> = {
-      model: { id: 'model', label: t('settings.model'), icon: <LinkCloud />, path: 'model' },
       agent: {
         id: 'agent',
-        label: t('settings.agents', { defaultValue: 'Agents' }),
+        label: t('settings.agentAndModel', { defaultValue: 'Agents & Models' }),
         icon: <Speed />,
         path: 'agent',
-      },
-      skills: {
-        id: 'skills',
-        label: t('settings.skills', { defaultValue: 'Skills' }),
-        icon: <Lightning />,
-        path: 'skills',
-      },
-      tools: {
-        id: 'tools',
-        label: t('settings.tools', { defaultValue: 'Tools' }),
-        icon: <Toolkit />,
-        path: 'tools',
       },
       appearance: { id: 'appearance', label: t('settings.appearancePanel'), icon: <Computer />, path: 'appearance' },
       webui: {
@@ -111,7 +84,6 @@ const SettingsSider: React.FC<{ collapsed?: boolean; tooltipEnabled?: boolean }>
         icon: isDesktop ? <Earth /> : <Communication />,
         path: 'webui',
       },
-      pet: { id: 'pet', label: t('pet.desktopPet'), icon: <Cat />, path: 'pet' },
       system: { id: 'system', label: t('settings.system'), icon: <System />, path: 'system' },
       archived: {
         id: 'archived',
@@ -122,8 +94,7 @@ const SettingsSider: React.FC<{ collapsed?: boolean; tooltipEnabled?: boolean }>
       about: { id: 'about', label: t('settings.about'), icon: <Info />, path: 'about' },
     };
 
-    // Start with ordered builtin IDs, hiding desktop-only tabs in browser mode
-    const result: SiderItem[] = BUILTIN_TAB_IDS.filter((id) => isDesktop || id !== 'pet').map((id) => builtinMap[id]);
+    const result: SiderItem[] = BUILTIN_TAB_IDS.map((id) => builtinMap[id]);
 
     // Extension tabs with position anchoring
     const beforeMap = new Map<string, IExtensionSettingsTab[]>();

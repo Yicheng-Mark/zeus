@@ -1,5 +1,12 @@
 import type { IProvider } from '@/common/config/storage';
 import {
+  type AgentScopeBackend,
+  AGENT_SCOPE_LABEL_KEYS,
+  DEFAULT_AGENT_SCOPES,
+  filterScopesForPlatform,
+  platformSupportsAgent,
+} from '@/common/utils/agentScopes';
+import {
   type ModelImageInputChoice,
   type ModelOpenAiApiModeChoice,
   supportsOpenAiApiMode,
@@ -223,6 +230,7 @@ const AddPlatformModal = ModalHOC<{
   const selectedPlatform = useMemo(() => getPlatformByValue(platformValue), [platformValue]);
 
   const platform = selectedPlatform?.platform ?? 'gemini';
+  const agentScopesValue = Form.useWatch('agent_scopes', form);
   // 判断是否为"自定义"选项（没有预设 base_url） / Check if "Custom" option (no preset base_url)
   const isCustom = isCustomOption(platformValue);
   const isBedrock = platform === 'bedrock';
@@ -320,6 +328,7 @@ const AddPlatformModal = ModalHOC<{
       } else {
         form.setFieldValue('platform', DEFAULT_PLATFORM_VALUE);
       }
+      form.setFieldValue('agent_scopes', DEFAULT_AGENT_SCOPES);
     }
   }, [modalProps.visible, deepLinkData]);
 
@@ -358,6 +367,7 @@ const AddPlatformModal = ModalHOC<{
           // keep the single-value fallback for safety.
           models: Array.isArray(values.model) ? values.model : [values.model],
           is_full_url: isFullUrl,
+          agent_scopes: (values.agent_scopes as AgentScopeBackend[]) ?? DEFAULT_AGENT_SCOPES,
         };
 
         // Add Bedrock configuration if platform is Bedrock
@@ -441,6 +451,8 @@ const AddPlatformModal = ModalHOC<{
                   // edit it. Custom / New API have no preset — clear the field so
                   // it doesn't carry over the previously selected platform's URL.
                   form.setFieldValue('base_url', plat.base_url ?? '');
+                  // Drop agent scopes the new platform cannot serve.
+                  form.setFieldValue('agent_scopes', filterScopesForPlatform(form.getFieldValue('agent_scopes'), plat.platform));
                 }
               }}
               renderFormat={(option) => {
@@ -722,9 +734,35 @@ const AddPlatformModal = ModalHOC<{
               label={t('settings.modelProtocol')}
               extra={<span className='text-11px text-t-secondary'>{t('settings.modelProtocolTip')}</span>}
             >
-              <Select value={modelProtocol} onChange={setModelProtocol} options={NEW_API_PROTOCOL_OPTIONS} />
+              <Select
+                value={modelProtocol}
+                onChange={(value) => {
+                  setModelProtocol(value);
+                  // The anthropic protocol unlocks the 开发 (claude) scope on new-api.
+                  form.setFieldValue('agent_scopes', filterScopesForPlatform(form.getFieldValue('agent_scopes'), platform, value));
+                }}
+                options={NEW_API_PROTOCOL_OPTIONS}
+              />
             </Form.Item>
           )}
+
+          {/* 适用于哪些助手 / Which assistants can use these models */}
+          <Form.Item
+            label={t('settings.agentScopes')}
+            field='agent_scopes'
+            initialValue={DEFAULT_AGENT_SCOPES}
+            extra={<span className='text-11px text-t-secondary leading-4'>{t('settings.agentScopesTip')}</span>}
+          >
+            <Select
+              mode='multiple'
+              options={(['aionrs', 'claude', 'opencode'] as AgentScopeBackend[]).map((backend) => ({
+                label: t(AGENT_SCOPE_LABEL_KEYS[backend]),
+                value: backend,
+                disabled: !platformSupportsAgent(platform, backend, modelProtocol),
+              }))}
+              value={agentScopesValue}
+            />
+          </Form.Item>
 
           <Form.Item
             label={

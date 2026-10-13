@@ -26,6 +26,12 @@ export interface ElectronBridgeAPI {
   // 隔离运行时体检 / 插件初始化
   isolatedRuntimeStatus?: () => Promise<unknown>;
   isolatedRuntimeInstallPlugins?: () => Promise<{ ok: boolean; log: string[] }>;
+  // Re-push agent-scoped model providers into the isolated CLI runtime configs
+  // (opencode.json provider section + claude env override). Fire after provider CRUD.
+  syncAgentModelRuntimes?: () => Promise<{
+    opencode: { configPath: string; providers: number; error?: string };
+    claude: { providerId: string | null; error?: string };
+  }>;
 }
 
 export type BackendStartupFailureReason =

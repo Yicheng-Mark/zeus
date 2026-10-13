@@ -579,15 +579,7 @@
     "slashHint": "Beceri"
   },
   "mcp": {
-    "loaded": "Yüklü MCP",
-    "managementHint": "Bir MCP anormal görünüyorsa, bunun nedeni genellikle MCP JSON yapılandırmasıdır. Araç ayarlarına gidip manuel olarak test edin.",
-    "openSettings": "Araç ayarlarını aç",
-    "status": {
-      "loaded": "Yüklendi",
-      "failed": "Başarısız",
-      "unsupported": "Desteklenmiyor"
-    },
-    "selected": "Seçili MCP"
+    "loaded": "Yüklü MCP"
   },
   "runtimePreparing": {
     "sendboxHint": "Çalışma ortamı hazırlanıyor. İlk başlatma biraz daha uzun sürebilir."

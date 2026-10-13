@@ -3284,6 +3284,86 @@ mod tests {
         assert!(failures.is_empty(), "knowledge-work corpus drifted:\n{}", failures.join("\n"));
     }
 
+    /// The personal-stack corpus (vendored by
+    /// AionCore/scripts/vendor-personal-stack.py from the author's agent
+    /// backup) feeds DEV_MODE_SKILLS in aionui-assistant. Pin its shape the
+    /// same way knowledge_work_corpus_shape_is_pinned pins the KWP set: every
+    /// entry a flat top-level dir whose frontmatter name equals its directory
+    /// name. Keep this list in sync with PERSONAL_STACK_SKILLS in
+    /// aionui-assistant's zeus_mode_presets.rs.
+    #[test]
+    fn personal_stack_corpus_shape_is_pinned() {
+        const EXPECTED_SKILLS: &[&str] = &[
+            "decompose-and-execute",
+            "diagnosing-bugs",
+            "grilling",
+            "handoff",
+            "karpathy-guidelines",
+            "resolving-merge-conflicts",
+            "skill-security-auditor",
+            "universal-scraping-architect",
+            "writing-for-agents",
+        ];
+
+        let mut seen: Vec<(String, String)> = Vec::new(); // (dir, frontmatter name)
+        for dir in BUILTIN_SKILLS.dirs() {
+            let Some(dir_name) = dir.path().file_name().and_then(|n| n.to_str()) else { continue };
+            if !EXPECTED_SKILLS.contains(&dir_name) {
+                continue;
+            }
+            let manifest = dir
+                .files()
+                .find(|file| file.path().file_name().and_then(|name| name.to_str()) == Some(SKILL_MANIFEST_FILE));
+            let name = manifest
+                .and_then(|file| std::str::from_utf8(file.contents()).ok())
+                .and_then(parse_frontmatter_fields)
+                .map(|(name, _)| name)
+                .unwrap_or_default();
+            seen.push((dir_name.to_string(), name));
+        }
+
+        assert_eq!(seen.len(), EXPECTED_SKILLS.len(), "personal-stack skill count changed");
+        let mut failures = Vec::new();
+        for (dir_name, name) in &seen {
+            if name.is_empty() {
+                failures.push(format!("{dir_name}: empty frontmatter name"));
+            } else if name != dir_name {
+                failures.push(format!("{dir_name}: frontmatter name {name:?} != directory name"));
+            }
+        }
+        assert!(failures.is_empty(), "personal-stack corpus drifted:\n{}", failures.join("\n"));
+    }
+
+    /// The multi-agent-orchestration skill is vendored flat (no plugin prefix)
+    /// and registered in ALL THREE mode presets in aionui-assistant's
+    /// zeus_mode_presets.rs. Pin its shape the same way the corpus pins above
+    /// do, so a re-vendor or accidental deletion cannot silently strip the
+    /// engines' orchestration guidance.
+    #[test]
+    fn multi_agent_orchestration_corpus_shape_is_pinned() {
+        let dir_name = "multi-agent-orchestration";
+        let dir = BUILTIN_SKILLS
+            .dirs()
+            .find(|d| d.path().file_name().and_then(|n| n.to_str()) == Some(dir_name))
+            .unwrap_or_else(|| panic!("{dir_name} skill dir missing from builtin corpus"));
+        let manifest = dir
+            .files()
+            .find(|file| file.path().file_name().and_then(|name| name.to_str()) == Some(SKILL_MANIFEST_FILE))
+            .unwrap_or_else(|| panic!("{dir_name}/SKILL.md missing"));
+        let body = std::str::from_utf8(manifest.contents()).expect("SKILL.md not utf-8");
+        let (name, description) = parse_frontmatter_fields(body)
+            .unwrap_or_else(|| panic!("{dir_name}/SKILL.md frontmatter unreadable"));
+        assert_eq!(name, dir_name, "frontmatter name must equal the directory name");
+        assert!(
+            description.contains("sub-agent") && description.contains("并行"),
+            "description must carry the zh/en trigger vocabulary"
+        );
+        assert!(
+            body.contains("Task 工具") && body.contains("[LOAD_SKILL"),
+            "skill body must name the dispatch tools per engine"
+        );
+    }
+
     /// Auto-inject descriptions are a per-session resident cost: they are
     /// injected into every conversation's skills index and count toward a
     /// native CLI's always-on catalog. Keep each one inside the budget so

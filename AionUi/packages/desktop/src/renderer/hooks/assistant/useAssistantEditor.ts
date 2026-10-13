@@ -10,6 +10,7 @@ import type {
 } from '@/renderer/pages/settings/AssistantSettings/types';
 import { ensureBackendMcpCatalog } from '@/renderer/hooks/mcp/catalog';
 import { getSkillImportErrorMessage } from '@/renderer/pages/settings/SkillsSettings/skillImportMessages';
+import { resolveMcpSelectionIds } from '@/renderer/pages/settings/AssistantSettings/assistantUtils';
 import { emitter } from '@/renderer/utils/emitter';
 import { assistantOrderAfterToggle, selectableAssistants } from '@/renderer/utils/model/assistantSelection';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -263,7 +264,7 @@ export const useAssistantEditor = ({
       setDefaultThoughtLevelValue(detail.defaults.thought_level.value || '');
       setDefaultSkillsMode(detail.defaults.skills.mode === 'auto' ? 'auto' : 'fixed');
       setDefaultMcpMode(detail.defaults.mcps.mode === 'fixed' ? 'fixed' : 'auto');
-      setSelectedMcpIds(detail.defaults.mcps.value ?? []);
+      setSelectedMcpIds(resolveMcpSelectionIds(detail.defaults.mcps.value, mcpServers));
       setAvailableSkills(skillsList);
       setBuiltinAutoSkills(autoSkills);
       setAvailableMcpServers(mcpServers);
@@ -336,7 +337,7 @@ export const useAssistantEditor = ({
       setDefaultThoughtLevelValue(detail.defaults.thought_level.value || '');
       setDefaultSkillsMode(detail.defaults.skills.mode === 'auto' ? 'auto' : 'fixed');
       setDefaultMcpMode(detail.defaults.mcps.mode === 'fixed' ? 'fixed' : 'auto');
-      setSelectedMcpIds(detail.defaults.mcps.value ?? []);
+      setSelectedMcpIds(resolveMcpSelectionIds(detail.defaults.mcps.value, mcpServers));
       setAvailableSkills(skillsList);
       setBuiltinAutoSkills(autoSkills);
       setAvailableMcpServers(mcpServers);

@@ -577,15 +577,7 @@
     "slashHint": "スキル"
   },
   "mcp": {
-    "loaded": "ロード済み MCP",
-    "managementHint": "MCP が異常に見える場合、通常は MCP JSON 設定が原因です。ツール設定で確認し、手動で検査してください。",
-    "openSettings": "ツール設定を開く",
-    "status": {
-      "loaded": "読み込み済み",
-      "failed": "失敗",
-      "unsupported": "非対応"
-    },
-    "selected": "選択済み MCP"
+    "loaded": "ロード済み MCP"
   },
   "runtimePreparing": {
     "sendboxHint": "実行環境を準備しています。初回起動は少し時間がかかる場合があります。"

@@ -23,7 +23,7 @@ import { Button, Dropdown, Menu, Message, Spin, Typography } from '@arco-design/
 import { ArrowLeft, Close, Plus, Right } from '@icon-park/react';
 import React, { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import useSWR, { mutate as swrMutate } from 'swr';
 import SettingsPageWrapper from '../components/SettingsPageWrapper';
 import SkillFileBrowser from './SkillFileBrowser';
@@ -73,7 +73,6 @@ const SectionCard: React.FC<{
 const SkillDetailPage: React.FC = () => {
   const { t, i18n } = useTranslation();
   const localeKey = resolveLocaleKey(i18n.language);
-  const location = useLocation();
   const navigate = useNavigate();
   const { skillName = '' } = useParams<{ skillName: string }>();
   const decodedName = decodeURIComponent(skillName);
@@ -103,17 +102,9 @@ const SkillDetailPage: React.FC = () => {
     [localeKey]
   );
 
-  const originTab =
-    typeof location.state === 'object' &&
-    location.state !== null &&
-    'skillsTab' in location.state &&
-    location.state.skillsTab === 'official'
-      ? 'official'
-      : 'custom';
-
   const goBack = useCallback(() => {
-    void navigate('/settings/skills', { state: { skillsTab: originTab } });
-  }, [navigate, originTab]);
+    void navigate('/skills');
+  }, [navigate]);
 
   const openAssistant = useCallback(
     (assistantId: string) => {

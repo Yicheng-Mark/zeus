@@ -183,6 +183,7 @@ mod tests {
                 model_settings: "{}",
                 bedrock_config: None,
                 is_full_url: false,
+                agent_scopes: None,
             })
             .await
             .unwrap();

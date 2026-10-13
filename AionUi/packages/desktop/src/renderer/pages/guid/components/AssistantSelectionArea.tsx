@@ -6,12 +6,9 @@
 
 import styles from '../index.module.css';
 import { assistantRuntimeKey, isAionrsAssistant, type Assistant } from '@/common/types/agent/assistantTypes';
-import { Robot } from '@icon-park/react';
 import { Button } from '@arco-design/web-react';
 import { useAssistantOrder } from '@/renderer/hooks/assistant/useAssistantOrder';
 import React, { useMemo } from 'react';
-import { resolveAssistantAvatar } from '@/renderer/utils/model/assistantAvatar';
-import ThemedLogo from '@/renderer/components/agent/ThemedLogo';
 import { selectableAssistants } from '@/renderer/utils/model/assistantSelection';
 import { useTranslation } from 'react-i18next';
 
@@ -91,7 +88,6 @@ const AssistantSelectionArea: React.FC<AssistantSelectionAreaProps> = ({
         >
           <div className='flex min-w-0 max-w-full items-center gap-6px'>
             {tabs.map(({ tab, assistant }) => {
-              const avatar = resolveAssistantAvatar(assistant.avatar);
               const isSelected = selectedId === assistant.id;
 
               return (
@@ -102,7 +98,7 @@ const AssistantSelectionArea: React.FC<AssistantSelectionAreaProps> = ({
                   data-assistant-backend={assistantRuntimeKey(assistant)}
                   data-assistant-selected={isSelected ? 'true' : 'false'}
                   type='text'
-                  className={`!inline-flex !min-w-0 !h-auto !items-center !gap-6px !rounded-999px !border-none !px-12px !py-8px !text-13px transition-all ${
+                  className={`!inline-flex !min-w-0 !h-auto !items-center !rounded-999px !border-none !px-12px !py-8px !text-13px transition-all ${
                     isSelected
                       ? 'font-600 text-t-primary shadow-sm'
                       : `text-t-secondary opacity-75 hover:opacity-100 ${styles.assistantSelectorInactive}`
@@ -110,20 +106,6 @@ const AssistantSelectionArea: React.FC<AssistantSelectionAreaProps> = ({
                   style={isSelected ? { background: 'var(--bg-base, #fff)' } : { background: 'transparent' }}
                   onClick={() => onSelectAssistant(assistant.id)}
                 >
-                  <span className='inline-flex h-20px w-20px items-center justify-center overflow-hidden rounded-999px bg-fill-2'>
-                    {avatar.kind === 'image' ? (
-                      <ThemedLogo
-                        src={avatar.value}
-                        alt=''
-                        className='object-contain'
-                        style={{ width: 20, height: 20 }}
-                      />
-                    ) : avatar.kind === 'emoji' ? (
-                      <span className={styles.assistantCardEmoji}>{avatar.value}</span>
-                    ) : (
-                      <Robot theme='outline' size={14} />
-                    )}
-                  </span>
                   <span data-assistant-label='true' className='min-w-0 max-w-180px truncate whitespace-nowrap'>
                     {t(tab.labelKey, { defaultValue: tab.fallbackLabel })}
                   </span>

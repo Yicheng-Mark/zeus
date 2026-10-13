@@ -27,7 +27,7 @@ use aionui_db::{
     SqliteClientPreferenceRepository, SqliteFeedbackDiagnosticsRepository, SqliteProviderRepository,
     SqliteSettingsRepository, UserStatus, UserType, init_database_memory,
 };
-use aionui_system::{
+use aionui_system::{KnowledgeService,
     ClientPrefService, FeedbackDiagnosticsService, ModelFetchService, ProtocolDetectionService, ProviderService,
     RuntimePrepareService, SettingsService, SystemRouterState, VersionCheckService, system_routes,
 };
@@ -49,6 +49,7 @@ async fn setup() -> axum::Router {
         feedback_diagnostics_service: FeedbackDiagnosticsService::new(Arc::new(
             SqliteFeedbackDiagnosticsRepository::new(db.pool().clone()),
         )),
+        knowledge_service: KnowledgeService::new(db.pool().clone(), std::env::temp_dir()),
     };
     system_routes(state)
 }

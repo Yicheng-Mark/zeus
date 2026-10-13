@@ -14,10 +14,12 @@ import { EditTwo, CheckOne } from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import CssThemeModal from './CssThemeModal.tsx';
+import ThemeModeCapsule from './ThemeModeCapsule.tsx';
 import { BUILTIN_THEMES, DEFAULT_THEME_ID } from './presets.ts';
 import { BACKGROUND_BLOCK_START, injectBackgroundCssBlock } from './backgroundUtils.ts';
 import { resolveExtensionAssetUrl } from '@renderer/utils/platform.ts';
-import { LIGHT_THEME_ID, SYSTEM_THEME_ID } from '@/common/theme/constants';
+import { BUILTIN_THEME_IDS } from '@renderer/theme/builtinThemes';
+import { DARK_THEME_ID, LIGHT_THEME_ID, SYSTEM_THEME_ID } from '@/common/theme/constants';
 
 interface ThemePreviewPalette {
   appBg: string;
@@ -211,16 +213,6 @@ const ThemeLayoutPreview: React.FC<{ palette: ThemePreviewPalette }> = ({ palett
   );
 };
 
-/** Diagonal split preview for the "Follow System" card: light top-left, dark bottom-right. */
-const SystemThemePreview: React.FC = () => (
-  <div className='absolute inset-0 pointer-events-none'>
-    <ThemeLayoutPreview palette={fallbackThemePreviewPaletteByMode.light} />
-    <div className='absolute inset-0' style={{ clipPath: 'polygon(100% 0, 100% 100%, 0 100%)' }}>
-      <ThemeLayoutPreview palette={fallbackThemePreviewPaletteByMode.dark} />
-    </div>
-  </div>
-);
-
 const ensureBackgroundCss = <T extends { id?: string; cover?: string; css?: string; builtin?: boolean }>(
   theme: T
 ): T => {
@@ -256,22 +248,9 @@ const CssThemeSettings: React.FC = () => {
     return map;
   }, [themes, currentTheme]);
 
-  // Virtual "Follow System" card, third in the gallery (after Light and Dark).
-  // Not part of BUILTIN_THEMES — it must never enter resolution/dedup/persistence.
-  const displayThemes = useMemo(() => {
-    if (themes.length === 0) return themes;
-    const systemCard: Theme = {
-      id: SYSTEM_THEME_ID,
-      name: t('settings.cssTheme.followSystem'),
-      appearance: 'light',
-      builtin: true,
-      created_at: 0,
-      updated_at: 0,
-    };
-    const arr = [...themes];
-    arr.splice(Math.min(2, arr.length), 0, systemCard);
-    return arr;
-  }, [themes, t]);
+  // Custom-theme gallery: extension-contributed and user themes only. The
+  // builtin Light/Dark and the virtual "Follow System" moved into the capsule.
+  const customThemes = useMemo(() => themes.filter((cssTheme) => !BUILTIN_THEME_IDS.has(cssTheme.id)), [themes]);
 
   // 加载主题列表 / Load theme list
   useEffect(() => {
@@ -327,6 +306,28 @@ const CssThemeSettings: React.FC = () => {
       try {
         await selectTheme(theme.id);
         Message.success(t('settings.cssTheme.applied', { name: theme.name }));
+      } catch {
+        Message.error(t('settings.cssTheme.applyFailed'));
+      }
+    },
+    [selectTheme, t]
+  );
+
+  /**
+   * 胶囊选择标准外观模式（明亮 / 暗夜 / 跟随系统）
+   * Capsule selection for the standard appearance modes.
+   */
+  const handleSelectMode = useCallback(
+    async (id: string) => {
+      const label =
+        id === SYSTEM_THEME_ID
+          ? t('settings.cssTheme.followSystem')
+          : id === DARK_THEME_ID
+            ? t('settings.themeDark')
+            : t('settings.themeLight');
+      try {
+        await selectTheme(id);
+        Message.success(t('settings.cssTheme.applied', { name: label }));
       } catch {
         Message.error(t('settings.cssTheme.applyFailed'));
       }
@@ -437,7 +438,10 @@ const CssThemeSettings: React.FC = () => {
 
   return (
     <div className='space-y-12px'>
-      {/* 标题栏 / Header */}
+      {/* 滑动式胶囊：明亮 / 暗夜 / 跟随系统 / Sliding capsule for standard modes */}
+      <ThemeModeCapsule activeId={activeThemeId} onSelect={(id) => void handleSelectMode(id)} />
+
+      {/* 自定义主题区标题栏 / Custom themes header */}
       <div className='flex items-start md:items-center justify-between gap-8px flex-wrap'>
         <span className='text-14px text-t-secondary leading-22px'>{t('settings.cssTheme.selectOrCustomize')}</span>
         <Button type='primary' size='small' className='!h-32px !rounded-8px !px-14px !m-0' onClick={handleAddTheme}>
@@ -445,66 +449,60 @@ const CssThemeSettings: React.FC = () => {
         </Button>
       </div>
 
-      {/* 主题卡片列表 / Theme card list.
-          Fixed-width cards that wrap: a full row packs several cards, while a
-          short list (e.g. just Light/Dark/Follow System) stays at its natural
-          size and leaves the trailing space empty instead of stretching each
-          card across the whole row. */}
-      <div className='flex flex-wrap gap-12px'>
-        {displayThemes.map((theme) => {
-          const previewPalette =
-            themePreviewPalettes.get(theme.id) ||
-            fallbackThemePreviewPaletteByMode[currentTheme === 'dark' ? 'dark' : 'light'];
-          const cardStyle = theme.cover
-            ? {
-                backgroundImage: `url(${theme.cover})`,
-                backgroundSize: '100% 100%',
-                backgroundPosition: 'center',
-                backgroundRepeat: 'no-repeat',
-                backgroundColor: previewPalette.appBg,
-              }
-            : { backgroundColor: previewPalette.appBg };
-          return (
-            <div
-              key={theme.id}
-              data-testid={`theme-card-${theme.id}`}
-              data-active={activeThemeId === theme.id}
-              className={`relative cursor-pointer rounded-12px overflow-hidden border-2 transition-all duration-200 h-112px w-200px flex-shrink-0 ${activeThemeId === theme.id ? 'border-[var(--color-primary)]' : 'border-transparent hover:border-border-2'}`}
-              style={cardStyle}
-              onClick={() => handleSelectTheme(theme)}
-              onMouseEnter={() => setHoveredThemeId(theme.id)}
-              onMouseLeave={() => setHoveredThemeId(null)}
-            >
-              {theme.id === SYSTEM_THEME_ID ? (
-                <SystemThemePreview />
-              ) : (
-                !theme.cover && <ThemeLayoutPreview palette={previewPalette} />
-              )}
+      {/* 自定义主题卡片列表 / Custom theme card list (empty until the user adds one). */}
+      {customThemes.length > 0 && (
+        <div className='flex flex-wrap gap-12px'>
+          {customThemes.map((theme) => {
+            const previewPalette =
+              themePreviewPalettes.get(theme.id) ||
+              fallbackThemePreviewPaletteByMode[currentTheme === 'dark' ? 'dark' : 'light'];
+            const cardStyle = theme.cover
+              ? {
+                  backgroundImage: `url(${theme.cover})`,
+                  backgroundSize: '100% 100%',
+                  backgroundPosition: 'center',
+                  backgroundRepeat: 'no-repeat',
+                  backgroundColor: previewPalette.appBg,
+                }
+              : { backgroundColor: previewPalette.appBg };
+            return (
+              <div
+                key={theme.id}
+                data-testid={`theme-card-${theme.id}`}
+                data-active={activeThemeId === theme.id}
+                className={`relative cursor-pointer rounded-12px overflow-hidden border-2 transition-all duration-200 h-112px w-200px flex-shrink-0 ${activeThemeId === theme.id ? 'border-[var(--color-primary)]' : 'border-transparent hover:border-border-2'}`}
+                style={cardStyle}
+                onClick={() => handleSelectTheme(theme)}
+                onMouseEnter={() => setHoveredThemeId(theme.id)}
+                onMouseLeave={() => setHoveredThemeId(null)}
+              >
+                {!theme.cover && <ThemeLayoutPreview palette={previewPalette} />}
 
-              {/* 底部渐变遮罩与名称、编辑按钮 / Bottom gradient overlay with name and edit button */}
-              <div className='absolute bottom-0 start-0 end-0 h-1/3 bg-gradient-to-t from-black/60 to-transparent flex items-end justify-between p-8px'>
-                <span className='text-13px text-white truncate flex-1'>{theme.name}</span>
-                {/* 编辑按钮（仅用户主题） / Edit button (user themes only) */}
-                {hoveredThemeId === theme.id && !theme.builtin && (
-                  <div
-                    className='p-4px rounded-6px bg-white/20 cursor-pointer hover:bg-white/40 transition-colors ms-8px'
-                    onClick={(e) => handleEditTheme(theme, e)}
-                  >
-                    <EditTwo theme='outline' size='16' fill='#fff' />
+                {/* 底部渐变遮罩与名称、编辑按钮 / Bottom gradient overlay with name and edit button */}
+                <div className='absolute bottom-0 start-0 end-0 h-1/3 bg-gradient-to-t from-black/60 to-transparent flex items-end justify-between p-8px'>
+                  <span className='text-13px text-white truncate flex-1'>{theme.name}</span>
+                  {/* 编辑按钮（仅用户主题） / Edit button (user themes only) */}
+                  {hoveredThemeId === theme.id && !theme.builtin && (
+                    <div
+                      className='p-4px rounded-6px bg-white/20 cursor-pointer hover:bg-white/40 transition-colors ms-8px'
+                      onClick={(e) => handleEditTheme(theme, e)}
+                    >
+                      <EditTwo theme='outline' size='16' fill='#fff' />
+                    </div>
+                  )}
+                </div>
+
+                {/* 选中标记 / Selected indicator */}
+                {activeThemeId === theme.id && (
+                  <div className='absolute top-8px end-8px'>
+                    <CheckOne theme='filled' size='20' fill='var(--color-primary)' />
                   </div>
                 )}
               </div>
-
-              {/* 选中标记 / Selected indicator */}
-              {activeThemeId === theme.id && (
-                <div className='absolute top-8px end-8px'>
-                  <CheckOne theme='filled' size='20' fill='var(--color-primary)' />
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* 主题编辑弹窗 / Theme edit modal */}
       <CssThemeModal

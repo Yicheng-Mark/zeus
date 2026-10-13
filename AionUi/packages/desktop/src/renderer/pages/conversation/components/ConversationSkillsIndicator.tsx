@@ -38,7 +38,7 @@ const ConversationSkillsIndicator: React.FC<ConversationSkillsIndicatorProps> = 
   const descriptionByName = new Map((skillIndex ?? []).map((s) => [s.name, s.description]));
 
   const handleSkillClick = (skillName: string) => {
-    navigate(`/settings/skills?highlight=${encodeURIComponent(skillName)}`);
+    navigate(`/skills?highlight=${encodeURIComponent(skillName)}`);
   };
 
   const content = (

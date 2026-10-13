@@ -20,10 +20,14 @@ import { ensureRuntimeBinaries, type RuntimeStatus } from './ensureRuntime';
 import { applyIsolatedAgentOverrides, type OverrideResult } from './agentOverrides';
 import { registerOpenDesignMcp } from './openDesignMcp';
 import { installIsolatedPlugins, type PluginInstallReport } from './plugins';
+import { syncAgentModelRuntimes, type ModelProviderSyncReport } from './modelProviders';
+import { syncSubAgentDefinitions, type AgentDefsSyncReport } from './agentDefs';
 
 export type IsolatedBootstrapReport = {
   runtime: RuntimeStatus;
   overrides?: OverrideResult;
+  modelProviders?: ModelProviderSyncReport;
+  agentDefs?: AgentDefsSyncReport;
   openDesign?: string;
   error?: string;
 };
@@ -45,6 +49,11 @@ async function runBootstrap(backendPort: number): Promise<IsolatedBootstrapRepor
   // override would send one agent to a missing exe and break the picker.
   if (runtime.claude.present && runtime.opencode.present) {
     report.overrides = await applyIsolatedAgentOverrides(backendPort, paths);
+    report.modelProviders = await syncAgentModelRuntimes(backendPort, paths);
+    report.agentDefs = await syncSubAgentDefinitions(paths).catch((err) => {
+      console.error('[IsolatedRuntime] sub-agent definition sync failed:', err);
+      return undefined;
+    });
     report.openDesign = await registerOpenDesignMcp(backendPort).catch((err) => {
       console.error('[IsolatedRuntime] Open Design MCP registration failed:', err);
       return `registration failed: ${err instanceof Error ? err.message : String(err)}`;
@@ -85,6 +94,12 @@ export async function getIsolatedRuntimeStatus(port: number): Promise<IsolatedRu
 
 export async function installPluginsNow(): Promise<PluginInstallReport> {
   return installIsolatedPlugins(getIsolatedRuntimePaths());
+}
+
+/** Re-push agent-scoped model providers into the isolated CLI runtime configs.
+ *  Called from the settings UI after a provider was created/updated/deleted. */
+export async function syncAgentModelRuntimesNow(port: number): Promise<ModelProviderSyncReport> {
+  return syncAgentModelRuntimes(port, getIsolatedRuntimePaths());
 }
 
 export { getIsolatedRuntimePaths };

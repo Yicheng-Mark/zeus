@@ -9,18 +9,14 @@ import { isElectronDesktop, resolveExtensionAssetUrl } from '@/renderer/utils/pl
 import { type IExtensionSettingsTab } from '@/common/adapter/ipcBridge';
 import { useExtensionSettingsTabs } from '@/renderer/hooks/system/useExtensionSettingsTabs';
 import {
-  Cat,
   Communication,
   Computer,
   Earth,
   Inbox,
   Info,
-  Lightning,
-  LinkCloud,
   Puzzle,
   Robot,
   System,
-  Toolkit,
 } from '@icon-park/react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -40,7 +36,6 @@ type TranslateFn = (key: string, options?: { defaultValue?: string }) => string;
 
 export function getBuiltinSettingsNavItems(isDesktop: boolean, t: TranslateFn): NavItem[] {
   const builtinMap: Record<string, NavItem> = {
-    model: { id: 'model', label: t('settings.model'), icon: <LinkCloud theme='outline' size='16' />, path: 'model' },
     assistants: {
       id: 'assistants',
       label: t('settings.assistants', { defaultValue: 'Assistants' }),
@@ -49,21 +44,9 @@ export function getBuiltinSettingsNavItems(isDesktop: boolean, t: TranslateFn): 
     },
     agent: {
       id: 'agent',
-      label: t('settings.agents', { defaultValue: 'Agents' }),
+      label: t('settings.agentAndModel', { defaultValue: 'Agents & Models' }),
       icon: <Robot theme='outline' size='16' />,
       path: 'agent',
-    },
-    skills: {
-      id: 'skills',
-      label: t('settings.skills', { defaultValue: 'Skills' }),
-      icon: <Lightning theme='outline' size='16' />,
-      path: 'skills',
-    },
-    tools: {
-      id: 'tools',
-      label: t('settings.tools', { defaultValue: 'Tools' }),
-      icon: <Toolkit theme='outline' size='16' />,
-      path: 'tools',
     },
     appearance: {
       id: 'appearance',
@@ -77,7 +60,6 @@ export function getBuiltinSettingsNavItems(isDesktop: boolean, t: TranslateFn): 
       icon: isDesktop ? <Earth theme='outline' size='16' /> : <Communication theme='outline' size='16' />,
       path: 'webui',
     },
-    pet: { id: 'pet', label: t('pet.desktopPet'), icon: <Cat theme='outline' size='16' />, path: 'pet' },
     system: { id: 'system', label: t('settings.system'), icon: <System theme='outline' size='16' />, path: 'system' },
     archived: {
       id: 'archived',

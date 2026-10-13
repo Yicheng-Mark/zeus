@@ -33,6 +33,9 @@ pub struct Provider {
     /// When true, base_url is treated as a complete endpoint URL.
     /// The system will NOT append paths like /v1/chat/completions.
     pub is_full_url: bool,
+    /// JSON array of agent backends this provider is scoped to
+    /// (e.g. `["aionrs","claude","opencode"]`). NULL/empty = available to all.
+    pub agent_scopes: Option<String>,
     pub created_at: TimestampMs,
     pub updated_at: TimestampMs,
 }

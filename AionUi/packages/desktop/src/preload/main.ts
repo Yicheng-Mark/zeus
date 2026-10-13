@@ -51,6 +51,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   recoverCorruptedDatabase: () => ipcRenderer.invoke('backend:recover-corrupted-database'),
   isolatedRuntimeStatus: () => ipcRenderer.invoke('isolated-runtime:status'),
   isolatedRuntimeInstallPlugins: () => ipcRenderer.invoke('isolated-runtime:install-plugins'),
+  syncAgentModelRuntimes: () => ipcRenderer.invoke('isolated-runtime:sync-model-providers'),
 });
 
 // Synchronously fetch the aioncore port and expose it to the renderer

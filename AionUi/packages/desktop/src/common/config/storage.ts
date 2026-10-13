@@ -583,6 +583,12 @@ export interface IProvider {
    */
   model_settings?: Record<string, ModelSettings>;
   is_full_url?: boolean;
+  /**
+   * 该服务商供哪些 agent 使用（'aionrs' | 'claude' | 'opencode'）。
+   * 空/缺省 = 所有 agent 可见（存量行为）。
+   * Agent backends this provider is scoped to. Empty/undefined = every agent.
+   */
+  agent_scopes?: string[];
 }
 
 export type TProviderWithModel = Omit<IProvider, 'models'> & {

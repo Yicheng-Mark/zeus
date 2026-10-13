@@ -61,7 +61,7 @@ vi.mock('react-router-dom', () => ({
   useNavigate: () => mocks.navigate,
   useParams: () => mocks.params,
   useLocation: () => ({
-    pathname: `/settings/skills/detail/${mocks.params.skillName}`,
+    pathname: `/skills/detail/${mocks.params.skillName}`,
     state: mocks.locationState,
   }),
 }));
@@ -243,12 +243,11 @@ describe('SkillDetailPage', () => {
     });
   });
 
-  it('back button restores the originating skills tab', async () => {
-    mocks.locationState.skillsTab = 'official';
+  it('back button returns to the skills page without tab state', async () => {
     render(<SkillDetailPage />);
 
     await waitFor(() => expect(screen.getByTestId('btn-back-skill-detail')).toBeInTheDocument());
     fireEvent.click(screen.getByTestId('btn-back-skill-detail'));
-    expect(mocks.navigate).toHaveBeenCalledWith('/settings/skills', { state: { skillsTab: 'official' } });
+    expect(mocks.navigate).toHaveBeenCalledWith('/skills');
   });
 });

@@ -115,6 +115,17 @@ const ModelModalContent: React.FC = () => {
   const [message, messageContext] = Message.useMessage();
 
   /**
+   * Push the new provider lineup into the isolated CLI runtime configs
+   * (opencode.json / claude env override) so scoped models become usable
+   * without an app restart. Fire-and-forget: failures only log.
+   */
+  const syncAgentRuntimes = () => {
+    void window.electronAPI?.syncAgentModelRuntimes?.().catch((error) => {
+      console.error('Failed to sync agent model runtimes:', error);
+    });
+  };
+
+  /**
    * Create when the provider id is new, update otherwise.
    * The caller is expected to have mutated the id-bearing record already.
    */
@@ -126,6 +137,7 @@ const ModelModalContent: React.FC = () => {
     } else {
       await ipcBridge.mode.createProvider.invoke(platform);
     }
+    syncAgentRuntimes();
   };
 
   const updatePlatform = (platform: IProvider, success: () => void) => {
@@ -162,6 +174,7 @@ const ModelModalContent: React.FC = () => {
       .invoke({ id })
       .then(() => {
         void mutate();
+        syncAgentRuntimes();
       })
       .catch((error) => {
         void mutate();

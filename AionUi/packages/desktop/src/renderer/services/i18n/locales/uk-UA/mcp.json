@@ -3,7 +3,6 @@
     "title": "Інтеграція MCP",
     "description": "Керування серверами та інструментами Model Context Protocol"
   },
-  "label": "MCP",
   "servers": "Сервери",
   "tools": "Інструменти",
   "executionHistory": "Історія виконання",
@@ -25,10 +24,8 @@
   "result": "Результат",
   "noParameters": "Цей інструмент не має параметрів",
   "noServers": "Сервери MCP не налаштовані",
-  "noServersFound": "Не знайдено серверів, що відповідають вашим критеріям",
   "noTools": "Немає доступних інструментів",
   "noExecutions": "Немає історії виконання",
-  "searchServers": "Пошук серверів...",
   "searchTools": "Пошук інструментів...",
   "filterByStatus": "Фільтр за статусом",
   "transport": "Транспорт",

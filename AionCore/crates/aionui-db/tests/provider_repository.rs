@@ -34,6 +34,7 @@ fn sample_params() -> CreateProviderParams<'static> {
         model_settings: "{}",
         bedrock_config: None,
         is_full_url: false,
+        agent_scopes: None,
     }
 }
 

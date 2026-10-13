@@ -583,15 +583,7 @@
     "slashHint": "Habilidade"
   },
   "mcp": {
-    "loaded": "MCP carregado",
-    "managementHint": "Se algum MCP parecer anormal, isso normalmente é causado pela configuração JSON do MCP. Vá para as configurações de Ferramentas e teste por lá.",
-    "openSettings": "Abrir configurações de Ferramentas",
-    "status": {
-      "loaded": "Carregado",
-      "failed": "Falhou",
-      "unsupported": "Não compatível"
-    },
-    "selected": "MCP selecionado"
+    "loaded": "MCP carregado"
   },
   "runtimePreparing": {
     "sendboxHint": "Preparando o ambiente de execução. A primeira inicialização pode demorar um pouco mais."

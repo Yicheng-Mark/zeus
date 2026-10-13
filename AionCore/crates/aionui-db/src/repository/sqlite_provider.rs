@@ -49,8 +49,8 @@ impl IProviderRepository for SqliteProviderRepository {
             "INSERT INTO providers \
                 (id, user_id, platform, name, base_url, api_key_encrypted, models, enabled, \
                  capabilities, context_limit, model_protocols, model_enabled, \
-                 model_health, model_settings, bedrock_config, is_full_url, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                 model_health, model_settings, bedrock_config, is_full_url, agent_scopes, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(params.user_id)
@@ -68,6 +68,7 @@ impl IProviderRepository for SqliteProviderRepository {
         .bind(params.model_settings)
         .bind(params.bedrock_config)
         .bind(params.is_full_url)
+        .bind(params.agent_scopes)
         .bind(now)
         .bind(now)
         .execute(&self.pool)
@@ -96,6 +97,7 @@ impl IProviderRepository for SqliteProviderRepository {
             model_settings: params.model_settings.to_string(),
             bedrock_config: params.bedrock_config.map(String::from),
             is_full_url: params.is_full_url,
+            agent_scopes: params.agent_scopes.map(String::from),
             created_at: now,
             updated_at: now,
         })
@@ -114,7 +116,7 @@ impl IProviderRepository for SqliteProviderRepository {
                 platform = ?, name = ?, base_url = ?, api_key_encrypted = ?, \
                 models = ?, enabled = ?, capabilities = ?, context_limit = ?, \
                 model_protocols = ?, model_enabled = ?, model_health = ?, \
-                model_settings = ?, bedrock_config = ?, is_full_url = ?, updated_at = ? \
+                model_settings = ?, bedrock_config = ?, is_full_url = ?, agent_scopes = ?, updated_at = ? \
              WHERE user_id = ? AND id = ?",
         )
         .bind(&merged.platform)
@@ -131,6 +133,7 @@ impl IProviderRepository for SqliteProviderRepository {
         .bind(&merged.model_settings)
         .bind(&merged.bedrock_config)
         .bind(merged.is_full_url)
+        .bind(&merged.agent_scopes)
         .bind(merged.updated_at)
         .bind(user_id)
         .bind(id)
@@ -191,6 +194,7 @@ fn merge_update(existing: Provider, params: UpdateProviderParams<'_>) -> Provide
             .bedrock_config
             .map_or(existing.bedrock_config, |v| v.map(String::from)),
         is_full_url: params.is_full_url.unwrap_or(existing.is_full_url),
+        agent_scopes: params.agent_scopes.map_or(existing.agent_scopes, |v| v.map(String::from)),
         created_at: existing.created_at,
         updated_at: now,
     }
@@ -237,6 +241,7 @@ mod tests {
             model_settings: "{}",
             bedrock_config: None,
             is_full_url: false,
+            agent_scopes: None,
         }
     }
 

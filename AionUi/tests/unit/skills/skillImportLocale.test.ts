@@ -23,18 +23,13 @@ const legacyImportHistorySummaryKeys = [
   'importHistoryFileTooLargeDetail',
   'importHistorySizeDetail',
 ];
-const requiredSkillImportKeys = [
-  'importPartialSuccess',
-  'importAllFailed',
-  'importFailureFileSizeDetail',
-  'importFailureTotalSizeDetail',
-  'importFailureLocationDetail',
+// The import-history secondary view was removed from the skills page (the
+// page now manages only the user's own skills), so its whole copy family is
+// dead and must not creep back into the locale files.
+const legacyImportHistoryViewKeys = [
   'importHistoryTitle',
-  'importHistoryEmpty',
-  'importHelpCompactLabel',
-  'importHelpConfiguredLimit',
-  'importHelpCompactText',
   'importHistoryDescription',
+  'importHistoryEmpty',
   'backToSkills',
   'importHistoryStatusPartial',
   'importHistoryStatusFailed',
@@ -62,6 +57,16 @@ const requiredSkillImportKeys = [
   'importHistorySizeLine',
   'importHistoryLocationLine',
   'importHistorySourceLine',
+  'importHelpCompactLabel',
+  'importHelpCompactText',
+];
+const requiredSkillImportKeys = [
+  'importPartialSuccess',
+  'importAllFailed',
+  'importFailureFileSizeDetail',
+  'importFailureTotalSizeDetail',
+  'importFailureLocationDetail',
+  'importHelpConfiguredLimit',
 ];
 const requiredSkillImportErrorCodes = [
   'SKILL_INVALID_FRONTMATTER',
@@ -103,6 +108,15 @@ describe('skill import locale copy', () => {
     for (const file of localeFiles) {
       const settings = JSON.parse(fs.readFileSync(file, 'utf8'));
       for (const key of legacyImportHistorySummaryKeys) {
+        expect(settings.skillsHub, `${file}:${key}`).not.toHaveProperty(key);
+      }
+    }
+  });
+
+  it('does not keep import-history view copy after the view was removed', () => {
+    for (const file of localeFiles) {
+      const settings = JSON.parse(fs.readFileSync(file, 'utf8'));
+      for (const key of legacyImportHistoryViewKeys) {
         expect(settings.skillsHub, `${file}:${key}`).not.toHaveProperty(key);
       }
     }

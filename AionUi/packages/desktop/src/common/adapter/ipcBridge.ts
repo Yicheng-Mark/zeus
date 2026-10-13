@@ -36,6 +36,14 @@ import type {
   UpdateAssistantRequest,
 } from '../types/agent/assistantTypes';
 import type {
+  CreateKnowledgeNoteRequest,
+  KnowledgeBacklinks,
+  KnowledgeNote,
+  KnowledgeNoteSummary,
+  KnowledgeReindexReport,
+  UpdateKnowledgeNoteRequest,
+} from '../types/knowledge';
+import type {
   EnsureConversationRuntimeResponse,
   GetConfigOptionsResponse,
   SetConfigOptionRequest,
@@ -1113,6 +1121,28 @@ export const mode = {
    */
   fetchModelList: httpPost<FetchModelsResponse, FetchModelsAnonymousRequest>('/api/providers/fetch-models'),
   detectProtocol: httpPost<ProtocolDetectionResponse, ProtocolDetectionRequest>('/api/providers/detect-protocol'),
+};
+
+// ---------------------------------------------------------------------------
+// Knowledge base (Obsidian-compatible vault) — routed to /api/knowledge/*
+// ---------------------------------------------------------------------------
+
+export const knowledge = {
+  listNotes: httpGet<KnowledgeNoteSummary[], { q?: string }>((p) =>
+    p?.q ? `/api/knowledge/notes?q=${encodeURIComponent(p.q)}` : '/api/knowledge/notes'
+  ),
+  getNote: httpGet<KnowledgeNote, { id: string }>((p) => `/api/knowledge/notes/${p.id}`),
+  createNote: httpPost<KnowledgeNote, CreateKnowledgeNoteRequest>('/api/knowledge/notes'),
+  updateNote: httpPut<KnowledgeNote, { id: string } & UpdateKnowledgeNoteRequest>(
+    (p) => `/api/knowledge/notes/${p.id}`,
+    (p) => {
+      const { id: _id, ...body } = p;
+      return body;
+    }
+  ),
+  deleteNote: httpDelete<void, { id: string }>((p) => `/api/knowledge/notes/${p.id}`),
+  backlinks: httpGet<KnowledgeBacklinks, { id: string }>((p) => `/api/knowledge/notes/${p.id}/backlinks`),
+  reindex: httpPost<KnowledgeReindexReport, void>('/api/knowledge/reindex'),
 };
 
 // ---------------------------------------------------------------------------

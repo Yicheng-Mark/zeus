@@ -20,7 +20,7 @@ use aionui_db::{
     SqliteProviderRepository, SqliteSettingsRepository, UserStatus, UserType, init_database_memory,
 };
 use aionui_realtime::BroadcastEventBus;
-use aionui_system::{
+use aionui_system::{KnowledgeService,
     ClientPrefService, FeedbackDiagnosticsService, ModelFetchService, ProtocolDetectionService, ProviderService,
     RuntimePrepareService, SettingsService, SystemRouterState, VersionCheckService, system_routes,
 };
@@ -46,6 +46,7 @@ fn build_state(db: &aionui_db::Database) -> SystemRouterState {
         feedback_diagnostics_service: FeedbackDiagnosticsService::new(Arc::new(
             SqliteFeedbackDiagnosticsRepository::new(db.pool().clone()),
         )),
+        knowledge_service: KnowledgeService::new(db.pool().clone(), std::env::temp_dir()),
     }
 }
 
@@ -85,6 +86,7 @@ async fn create_provider(db: &aionui_db::Database, platform: &str, base_url: &st
             model_settings: "{}",
             bedrock_config: None,
             is_full_url: false,
+            agent_scopes: None,
         })
         .await
         .unwrap();

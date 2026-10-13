@@ -139,14 +139,10 @@ vi.mock('react-router-dom', () => ({
 
 vi.mock('@/common', () => ({
   ipcBridge: {
-    fs: {
-      listAvailableSkills: { invoke: vi.fn().mockResolvedValue([]) },
+    assistants: {
+      get: { invoke: vi.fn().mockResolvedValue(null) },
     },
   },
-}));
-
-vi.mock('@/renderer/hooks/mcp/catalog', () => ({
-  ensureBackendMcpCatalog: vi.fn().mockResolvedValue({ allServers: [] }),
 }));
 
 vi.mock('@/renderer/hooks/chat/useInputFocusRing', () => ({
@@ -207,14 +203,6 @@ vi.mock('@/renderer/pages/guid/components/GuidInputCard', () => ({
 
 vi.mock('@/renderer/pages/guid/components/GuidModelSelector', () => ({
   default: () => <div data-testid='guid-model-selector' />,
-}));
-
-vi.mock('@/renderer/pages/guid/components/QuickActionButtons', () => ({
-  default: () => <div data-testid='guid-quick-actions' />,
-}));
-
-vi.mock('@/renderer/components/settings/SettingsModal/contents/FeedbackReportModal', () => ({
-  default: () => null,
 }));
 
 vi.mock('@/renderer/components/chat/SpeechInputButton', () => ({
@@ -467,62 +455,7 @@ describe('GuidPage', () => {
     );
   });
 
-  it('renders example prompts with wrapping text for long assistant suggestions', () => {
-    agentSelectionMock.assistants = [
-      {
-        id: 'bare-aionrs',
-        source: 'generated',
-        name: 'Aion CLI',
-        name_i18n: {},
-        description_i18n: {},
-        enabled: true,
-        sort_order: 10,
-        preset_agent_type: 'aionrs',
-        enabled_skills: [],
-        custom_skill_names: [],
-        disabled_builtin_skills: [],
-        context_i18n: {},
-        prompts: [],
-        prompts_i18n: {
-          'en-US': [
-            'Create a three-page financial dashboard with profit, revenue mix, and conditional formatting highlights',
-          ],
-        },
-        models: [],
-        agent_status: 'online',
-        team_selectable: true,
-        deletable: false,
-      },
-    ];
-
-    swrMock.useSWRMock.mockImplementation((key: string | null) => {
-      if (key?.startsWith('guid.assistant.detail.')) {
-        return {
-          data: assistantDetailFixture,
-        };
-      }
-      return { data: null };
-    });
-
-    render(<GuidPage />);
-
-    const promptButton = screen.getByRole('button', {
-      name: /Create a three-page financial dashboard with profit/i,
-    });
-
-    expect(promptButton.className).toContain('!whitespace-normal');
-    expect(promptButton.className).toContain('!break-words');
-  });
-
-  it('falls back to default instruction prompts when the selected assistant has no recommendations', () => {
-    render(<GuidPage />);
-
-    expect(screen.getByRole('button', { name: 'guid.defaultPrompts.understand' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'guid.defaultPrompts.cleanup' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'guid.defaultPrompts.create' })).toBeInTheDocument();
-  });
-
-  it('does not seed skill defaults from the assistant list while detail is loading', async () => {
+  it('passes no per-conversation skill or MCP selection into the send flow', async () => {
     agentSelectionMock.assistants = [
       {
         id: 'bare-aionrs',
@@ -551,11 +484,36 @@ describe('GuidPage', () => {
 
     await vi.waitFor(() => {
       const latestDeps = capturedGuidSendDeps.at(-1);
-      expect(latestDeps).toMatchObject({
-        guidEnabledSkills: undefined,
-        guidDisabledBuiltinSkills: undefined,
-      });
+      expect(latestDeps).toBeDefined();
     });
+    const latestDeps = capturedGuidSendDeps.at(-1);
+    // Agents carry fixed per-mode presets now; the guid flow must not forward
+    // any skill/MCP selection state even when the assistant list still ships it.
+    for (const key of [
+      'guidEnabledSkills',
+      'guidDisabledBuiltinSkills',
+      'assistantDefaultSkillIds',
+      'assistantDefaultDisabledBuiltinSkillIds',
+      'availableMcpServers',
+      'selectedMcpServerIds',
+      'assistantDefaultMcpIds',
+    ]) {
+      expect(latestDeps).not.toHaveProperty(key);
+    }
+
+    const latestActionRowProps = capturedGuidActionRowProps.at(-1);
+    expect(latestActionRowProps).toBeDefined();
+    for (const key of [
+      'allSkills',
+      'disabledBuiltinSkills',
+      'enabledSkills',
+      'onToggleSkill',
+      'mcpServers',
+      'selectedMcpServerIds',
+      'onToggleMcpServer',
+    ]) {
+      expect(latestActionRowProps).not.toHaveProperty(key);
+    }
   });
 
   it('applies an aionrs assistant default model after provider models load', async () => {

@@ -606,11 +606,18 @@ impl AssistantService {
             .resolve_definition_identity_for_user(user_id, "generated", Some(&row.id), &assistant_id)
             .await?;
         let avatar_value = row.icon.as_deref().filter(|value| !value.trim().is_empty());
+        // Zeus fork MCP preset: names, not row ids (see zeus_mode_presets.rs).
+        // An empty preset (custom agents) keeps the historical `auto` binding
+        // instead of pinning an empty fixed list.
+        let mcp_preset = crate::zeus_mode_presets::mode_preset_mcp_names(row.backend.as_deref(), row.agent_type);
         let (definition, should_upsert) = if let Some(mut definition) = existing_definition {
             let avatar_type = if avatar_value.is_some() { "emoji" } else { "none" };
             let should_upgrade_skill_defaults = definition.default_skills_mode == "auto"
                 && decode_str_list(Some(definition.default_skill_ids.as_str()))?.is_empty()
                 && decode_str_list(Some(definition.default_disabled_builtin_skill_ids.as_str()))?.is_empty();
+            let should_seed_mcp_preset = definition.default_mcps_mode == "auto"
+                && decode_str_list(Some(definition.default_mcp_ids.as_str()))?.is_empty()
+                && !mcp_preset.is_empty();
             let identity_changed = definition.name != row.name
                 || definition.avatar_type != avatar_type
                 || definition.avatar_value.as_deref() != avatar_value
@@ -629,7 +636,12 @@ impl AssistantService {
             if should_upgrade_skill_defaults {
                 definition.default_skills_mode = "fixed".into();
             }
-            (definition, identity_changed || should_upgrade_skill_defaults)
+            if should_seed_mcp_preset {
+                definition.default_mcps_mode = "fixed".into();
+                definition.default_mcp_ids =
+                    serde_json::to_string(mcp_preset).unwrap_or_else(|_| "[]".into());
+            }
+            (definition, identity_changed || should_upgrade_skill_defaults || should_seed_mcp_preset)
         } else {
             (
                 AssistantDefinitionRow {
@@ -675,8 +687,16 @@ impl AssistantService {
                     .unwrap_or_else(|_| "[]".into()),
                     custom_skill_names: "[]".into(),
                     default_disabled_builtin_skill_ids: "[]".into(),
-                    default_mcps_mode: "auto".into(),
-                    default_mcp_ids: "[]".into(),
+                    // Zeus fork: same preset treatment as skills — the mode's
+                    // fixed MCP list, stored as NAMES resolved against live
+                    // rows at conversation-create time. Custom agents (empty
+                    // preset) keep the historical `auto` + empty binding.
+                    default_mcps_mode: if mcp_preset.is_empty() { "auto".into() } else { "fixed".into() },
+                    default_mcp_ids: if mcp_preset.is_empty() {
+                        "[]".into()
+                    } else {
+                        serde_json::to_string(mcp_preset).unwrap_or_else(|_| "[]".into())
+                    },
                     created_at: 0,
                     updated_at: 0,
                     deleted_at: None,
@@ -690,6 +710,17 @@ impl AssistantService {
                 .upsert_for_user(user_id, &upsert_params_from_definition(&definition))
                 .await
                 .map_err(|e| AssistantError::Internal(format!("upsert generated assistant definition: {e}")))?;
+        }
+
+        // Zeus fork: seed the mode's orchestration rule once. Reconcile never
+        // overwrites an existing rule file — a user's edits (or a deliberately
+        // emptied file) always win.
+        if let Some(rule) = crate::zeus_mode_presets::mode_preset_rule(row.backend.as_deref(), row.agent_type)
+            && self.read_user_rule_with_fallback(user_id, &assistant_id, None).is_empty()
+        {
+            if let Err(error) = self.write_rule_for_user(user_id, &assistant_id, None, rule).await {
+                warn!(agent_id = %row.id, %error, "skip seeding mode rule for generated assistant");
+            }
         }
 
         if !is_missing {
@@ -3795,6 +3826,7 @@ mod tests {
             model_settings: "{}",
             bedrock_config: None,
             is_full_url: false,
+            agent_scopes: None,
         })
         .await
         .expect("seed provider");
@@ -4311,6 +4343,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reconcile_upgrades_legacy_generated_mcp_binding_to_mode_preset() {
+        let fx = fixture().await;
+        fx.agent_rows
+            .lock()
+            .expect("agent rows lock poisoned")
+            .push(mk_agent_row(
+                "agent-claude",
+                "claude",
+                aionui_api_types::AgentManagementStatus::Online,
+            ));
+        insert_generated_definition(&fx, "asstdef-generated", "bare:agent-claude", "agent-claude").await;
+
+        // Lazy reconcile runs on list(); the pre-preset auto + empty binding
+        // upgrades to fixed + the mode's name preset.
+        fx.service.list().await.unwrap();
+
+        let detail = fx.service.get_detail("bare:agent-claude", Some("en-US")).await.unwrap();
+        assert_eq!(detail.defaults.mcps.mode, "fixed");
+        assert_eq!(
+            detail.defaults.mcps.value,
+            crate::zeus_mode_presets::DEV_MODE_MCPS.iter().map(|s| s.to_string()).collect::<Vec<_>>()
+        );
+
+        // A user-tuned list is never overwritten: fixing a custom id list and
+        // reconciling again leaves it untouched.
+        fx.service
+            .update(
+                "bare:agent-claude",
+                UpdateAssistantRequest {
+                    defaults: Some(AssistantDefaultsRequest {
+                        mcps: Some(AssistantDefaultListRequest {
+                            mode: "fixed".into(),
+                            value: vec!["mcp_custom".into()],
+                        }),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        fx.service.list().await.unwrap();
+        let detail = fx.service.get_detail("bare:agent-claude", Some("en-US")).await.unwrap();
+        assert_eq!(detail.defaults.mcps.value, vec!["mcp_custom".to_string()]);
+    }
+
+    #[tokio::test]
     async fn bootstrap_materializes_generated_assistant_from_available_agent() {
         let fx = fixture_with_options(FixtureOpts {
             agent_rows: vec![mk_agent_row(
@@ -4341,7 +4420,40 @@ mod tests {
             detail.defaults.skills.value,
             crate::zeus_mode_presets::DEV_MODE_SKILLS.iter().map(|s| s.to_string()).collect::<Vec<_>>()
         );
+        // Zeus fork: the mode's MCP preset ships as NAMES (row ids are
+        // per-install); the conversation layer resolves them at create time.
+        assert_eq!(detail.defaults.mcps.mode, "fixed");
+        assert_eq!(
+            detail.defaults.mcps.value,
+            crate::zeus_mode_presets::DEV_MODE_MCPS.iter().map(|s| s.to_string()).collect::<Vec<_>>()
+        );
         assert!(detail.capabilities.default_disabled_builtin_skill_ids.is_empty());
+    }
+
+    #[tokio::test]
+    async fn bootstrap_seeds_mode_rule_once_and_never_overwrites_user_edits() {
+        let fx = fixture_with_options(FixtureOpts {
+            agent_rows: vec![mk_agent_row(
+                "agent-claude",
+                "claude",
+                aionui_api_types::AgentManagementStatus::Online,
+            )],
+            ..Default::default()
+        })
+        .await;
+
+        // First bootstrap: the claude (dev) mode rule is seeded into the
+        // assistant's rule file — the system-prompt channel for the engine.
+        let _ = fx.service.list().await.unwrap();
+        let seeded = fx.service.read_rule("bare:agent-claude", None).await.unwrap();
+        assert_eq!(seeded, crate::zeus_mode_presets::DEV_MODE_RULE);
+
+        // A user edit always wins: after rewriting the rule, a later
+        // reconcile must keep the user's content untouched.
+        fx.service.write_rule("bare:agent-claude", None, "my custom rule").await.unwrap();
+        let _ = fx.service.list().await.unwrap();
+        let kept = fx.service.read_rule("bare:agent-claude", None).await.unwrap();
+        assert_eq!(kept, "my custom rule");
     }
 
     #[tokio::test]
@@ -6886,6 +6998,7 @@ mod tests {
                 model_settings: "{}",
                 bedrock_config: None,
                 is_full_url: false,
+                agent_scopes: None,
             })
             .await
             .unwrap();

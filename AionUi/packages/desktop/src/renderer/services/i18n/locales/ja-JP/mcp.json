@@ -3,7 +3,6 @@
     "title": "MCP 統合",
     "description": "モデルコンテキストプロトコルサーバーとツールを管理"
   },
-  "label": "MCP",
   "servers": "サーバー",
   "tools": "ツール",
   "executionHistory": "実行履歴",
@@ -25,10 +24,8 @@
   "result": "結果",
   "noParameters": "このツールにはパラメーターがありません",
   "noServers": "MCP サーバーが設定されていません",
-  "noServersFound": "条件に一致するサーバーが見つかりません",
   "noTools": "利用可能なツールがありません",
   "noExecutions": "実行履歴がありません",
-  "searchServers": "サーバーを検索...",
   "searchTools": "ツールを検索...",
   "filterByStatus": "ステータスでフィルター",
   "transport": "トランスポート",

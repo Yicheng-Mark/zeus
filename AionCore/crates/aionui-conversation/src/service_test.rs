@@ -36,13 +36,14 @@ use aionui_db::models::{
     MessageRow, UpdateAgentHandshakeParams, UpsertAgentMetadataParams,
 };
 use aionui_db::{
-    ConversationFilters, ConversationRowUpdate, CreateAcpSessionParams, DbError, IAcpSessionRepository,
-    IAgentMetadataRepository, IAssistantDefinitionRepository, IAssistantOverlayRepository,
-    IAssistantPreferenceRepository, IConversationRepository, MessageRowUpdate, MessageSearchRow, PersistedSessionState,
+    ConversationFilters, ConversationRowUpdate, CreateAcpSessionParams, CreateMcpServerParams, DbError,
+    IAcpSessionRepository, IAgentMetadataRepository, IAssistantDefinitionRepository, IAssistantOverlayRepository,
+    IAssistantPreferenceRepository, IConversationRepository, IMcpServerRepository, MessageRowUpdate, MessageSearchRow,
+    PersistedSessionState,
     SaveRuntimeStateParams, SqliteAssistantDefinitionRepository, SqliteAssistantOverlayRepository,
-    SqliteAssistantPreferenceRepository, UpdateAgentAvailabilitySnapshotParams, UpsertAssistantDefinitionParams,
-    UpsertAssistantOverlayParams, UpsertAssistantPreferenceParams, UpsertConversationAssistantSnapshotParams,
-    init_database_memory,
+    SqliteAssistantPreferenceRepository, SqliteMcpServerRepository, UpdateAgentAvailabilitySnapshotParams,
+    UpsertAssistantDefinitionParams, UpsertAssistantOverlayParams, UpsertAssistantPreferenceParams,
+    UpsertConversationAssistantSnapshotParams, init_database_memory,
 };
 use aionui_db::{MessagePageCursor, MessagePageDirection, MessagePageParams, MessagePageResult};
 use aionui_extension::{AssistantRuleDispatcher, ExtensionError};
@@ -8461,6 +8462,122 @@ async fn create_does_not_overwrite_preferences_for_fixed_skills_and_mcps() {
     assert_eq!(updated_pref.last_skill_ids, r#"["legacy-skill"]"#);
     assert_eq!(updated_pref.last_disabled_builtin_skill_ids, r#"["legacy-disabled"]"#);
     assert_eq!(updated_pref.last_mcp_ids, r#"["legacy-mcp"]"#);
+}
+
+#[tokio::test]
+async fn create_with_name_based_fixed_mcp_preset_splits_builtin_rows() {
+    let resolver = Arc::new(FixedSkillResolver { names: vec![] });
+    let dispatcher = Arc::new(StaticAssistantDispatcher {
+        rules: std::collections::HashMap::new(),
+    });
+    let (svc, _broadcaster, _repo, definition_repo, state_repo, _preference_repo) =
+        make_service_with_assistant_support(resolver, dispatcher).await;
+    let workspace = ensure_test_workspace_path();
+
+    // The MCP catalog lives on its own memory database; the service only
+    // reads it through the repository trait.
+    let mcp_db = init_database_memory().await.unwrap();
+    seed_test_user(mcp_db.pool(), "user-1").await;
+    let mcp_repo = Arc::new(SqliteMcpServerRepository::new(mcp_db.pool().clone()));
+    svc.with_mcp_server_repo(mcp_repo.clone());
+    let seed_row = |builtin: bool, enabled: bool| {
+        CreateMcpServerParams {
+            user_id: "user-1",
+            name: if builtin { "aionui-browser" } else { "open-design" },
+            description: None,
+            enabled,
+            transport_type: "stdio",
+            transport_config: r#"{"command":"node","args":["-v"],"env":{}}"#,
+            tools: None,
+            original_json: None,
+            builtin,
+        }
+    };
+    mcp_repo.create(seed_row(true, true)).await.unwrap();
+    // Disabled on purpose: an explicitly fixed selection must bypass the
+    // per-server global enabled toggle.
+    let open_design = mcp_repo.create(seed_row(false, false)).await.unwrap();
+
+    definition_repo
+        .upsert(&UpsertAssistantDefinitionParams {
+            id: "asstdef_preset_names",
+            assistant_id: "preset-names",
+            source: "builtin",
+            owner_type: "system",
+            source_ref: Some("preset-names"),
+            name: "Preset Names",
+            name_i18n: "{}",
+            description: Some("desc"),
+            description_i18n: "{}",
+            avatar_type: "emoji",
+            avatar_value: Some("🤖"),
+            agent_id: "claude",
+            rule_resource_type: "builtin_asset",
+            rule_resource_ref: Some("preset-names"),
+            recommended_prompts: "[]",
+            recommended_prompts_i18n: "{}",
+            default_model_mode: "auto",
+            default_model_value: None,
+            default_permission_mode: "auto",
+            default_permission_value: None,
+            default_thought_level_mode: "auto",
+            default_thought_level_value: None,
+            default_skills_mode: "fixed",
+            default_skill_ids: "[]",
+            custom_skill_names: "[]",
+            default_disabled_builtin_skill_ids: "[]",
+            // Zeus mode preset shape: NAMES (builtin + user server), plus one
+            // unknown entry that must be skipped.
+            default_mcps_mode: "fixed",
+            default_mcp_ids: r#"["aionui-browser","open-design","no-such-server"]"#,
+        })
+        .await
+        .unwrap();
+    state_repo
+        .upsert_for_user(
+            "user-1",
+            &UpsertAssistantOverlayParams {
+                assistant_definition_id: "asstdef_preset_names",
+                enabled: true,
+                sort_order: 0,
+                agent_id_override: None,
+                last_used_at: None,
+            },
+        )
+        .await
+        .unwrap();
+
+    let req: CreateConversationRequest = serde_json::from_value(json!({
+        "type": "acp",
+        "name": "t",
+        "assistant": { "id": "preset-names", "locale": "zh-CN" },
+        "extra": { "workspace": workspace, "backend": "claude" },
+    }))
+    .unwrap();
+    let resp = svc.create("user-1", req).await.unwrap();
+
+    // The builtin row rides the session-server channel; the user row rides
+    // the id channel even though it is globally disabled; the unknown name
+    // never reaches the snapshot.
+    assert_eq!(resp.extra["mcp_server_ids"], json!([open_design.id]));
+    let session_servers = resp.extra["session_mcp_servers"].as_array().unwrap();
+    assert_eq!(
+        session_servers
+            .iter()
+            .filter(|server| server["name"] == json!("aionui-browser"))
+            .count(),
+        1,
+        "builtin preset server must be injected as a session server"
+    );
+    let names: Vec<&str> = resp.extra["mcp_servers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_str().unwrap())
+        .collect();
+    assert!(names.contains(&"aionui-browser"));
+    assert!(names.contains(&"open-design"));
+    assert!(!names.contains(&"no-such-server"));
 }
 
 #[tokio::test]
