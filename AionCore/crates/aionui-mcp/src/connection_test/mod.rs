@@ -119,7 +119,7 @@ impl McpConnectionTestService {
         let reporter =
             runtime_scope_id.map(|scope_id| self.runtime_reporter(user_id.map(str::to_owned), scope_id.to_owned()));
         let mut cmd = match probe_runtime_command(command) {
-            RuntimeCommandProbe::NodeTool { .. } => {
+            RuntimeCommandProbe::NodeTool { .. } | RuntimeCommandProbe::PythonTool { .. } => {
                 let resolved = match ensure_runtime_command_with_reporter(command, reporter.as_deref()).await {
                     Ok(resolved) => resolved,
                     Err(error) => return spawn_error_result(command, &runtime_resolution_error(&error.to_string())),

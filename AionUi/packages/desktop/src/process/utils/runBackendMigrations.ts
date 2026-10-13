@@ -16,6 +16,8 @@ import {
   type ImageGenerationMcpEnvResolveResult,
 } from '@/common/config/imageGenerationMcpEnv';
 import { BUILTIN_IMAGE_GEN_NAME, type IMcpServer, type IProvider } from '@/common/config/storage';
+import { VENDORED_CHROME_DEVTOOLS_MCP_ENV } from '@/process/resources/builtinMcp/browserServerPort';
+import { resolveVendoredChromeDevtoolsMcp } from '@/process/resources/builtinMcp/vendoredMcp';
 import { getBuiltinMcpScriptPath, type ProcessConfig as ProcessConfigType } from './initStorage';
 import { migrateAssistantsToBackend } from './migrateAssistants';
 
@@ -177,9 +179,14 @@ function isSameStdioTransport(left: IMcpServer['transport'], right: IMcpServer['
 
 function buildBuiltinBrowserServer(): McpImportServer {
   const scriptPath = getBuiltinMcpScriptPath(BUILTIN_BROWSER_SCRIPT);
+  // Vendored chrome-devtools-mcp entry (packaged builds): handed to the wrapper
+  // through env so it can spawn the offline copy instead of npx. Absent in dev.
+  const vendoredEntry = resolveVendoredChromeDevtoolsMcp()?.entry;
+  const env = vendoredEntry ? { [VENDORED_CHROME_DEVTOOLS_MCP_ENV]: vendoredEntry } : {};
   const serverConfig = {
     command: 'node',
     args: [scriptPath],
+    ...(vendoredEntry ? { env } : {}),
   };
 
   return {
@@ -195,6 +202,7 @@ function buildBuiltinBrowserServer(): McpImportServer {
       type: 'stdio',
       command: serverConfig.command,
       args: serverConfig.args,
+      ...(vendoredEntry ? { env } : {}),
     },
     original_json: JSON.stringify({ mcpServers: { [BUILTIN_BROWSER_MCP_NAME]: serverConfig } }, null, 2),
   };

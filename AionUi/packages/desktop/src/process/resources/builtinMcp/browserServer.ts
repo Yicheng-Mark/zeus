@@ -30,7 +30,12 @@
  */
 
 import { spawn } from 'node:child_process';
-import { buildMcpSpawnCommand, resolveBridgeToken, resolveBrowserUrl } from './browserServerPort';
+import {
+  buildMcpSpawnCommand,
+  resolveBridgeToken,
+  resolveBrowserUrl,
+  resolveVendoredEntry,
+} from './browserServerPort';
 
 /**
  * stdio MCP 服务器的 stdout 是协议通道，任何附加输出都会破坏握手。
@@ -151,6 +156,7 @@ const spawnPlan = buildMcpSpawnCommand({
   platform: process.platform,
   version: CHROME_DEVTOOLS_MCP_VERSION,
   browserUrl,
+  vendoredEntry: resolveVendoredEntry({ env: process.env }),
 });
 
 const child = spawn(spawnPlan.command, spawnPlan.args, {

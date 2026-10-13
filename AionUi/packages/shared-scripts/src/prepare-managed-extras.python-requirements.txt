@@ -1,0 +1,13 @@
+# Preinstalled into the bundled python's site-packages at build time
+# (see prepare-managed-extras.js). Covers the office / data / docs skill
+# corpus; niche skills (bio-research, playwright, …) keep their own
+# requirements.txt installed on demand.
+pandas
+openpyxl
+matplotlib
+numpy
+requests
+pyyaml
+pypdf
+beautifulsoup4
+lxml

@@ -9,6 +9,8 @@ import { ANTHROPIC_NEUTRALIZED_KEYS, claudeEnv, opencodeEnv } from '@/process/is
 import {
   applyActiveProviderEnv,
   claudeProviderCandidates,
+  claudeSyncSkipped,
+  enabledModels,
   type ProviderRow,
 } from '@/process/isolatedRuntime/modelProviders';
 import { isolatedClaudeSpawnEnv } from '@/process/isolatedRuntime/plugins';
@@ -70,12 +72,26 @@ describe('isolatedClaudeSpawnEnv', () => {
   });
 });
 
+describe('enabledModels', () => {
+  it('drops models switched off in model_enabled and keeps the rest', () => {
+    const provider = row({
+      models: ['glm-4.6', 'glm-4.5-flash', 'glm-4.5-air'],
+      model_enabled: { 'glm-4.5-flash': false },
+    });
+    expect(enabledModels(provider)).toEqual(['glm-4.6', 'glm-4.5-air']);
+  });
+
+  it('keeps every model when model_enabled is absent', () => {
+    expect(enabledModels(row({ models: ['a', 'b'] }))).toEqual(['a', 'b']);
+  });
+});
+
 describe('claudeProviderCandidates', () => {
   it('accepts the anthropic platform, dual-protocol custom rows and anthropic-protocol new-api rows', () => {
     const providers = [
       row({ id: 'a', platform: 'anthropic', base_url: 'https://api.anthropic.com' }),
       row({ id: 'b', platform: 'custom', anthropic_base_url: 'https://api.deepseek.com/anthropic' }),
-      row({ id: 'c', platform: 'new-api', model_protocols: { 'claude-sonnet-4': 'anthropic' } }),
+      row({ id: 'c', platform: 'new-api', models: ['claude-sonnet-4'], model_protocols: { 'claude-sonnet-4': 'anthropic' } }),
       // OpenAI-only custom rows and openai-protocol new-api rows cannot serve claude.
       row({ id: 'd', platform: 'custom' }),
       row({ id: 'e', platform: 'new-api', model_protocols: { 'gpt-4o': 'openai' } }),
@@ -86,6 +102,70 @@ describe('claudeProviderCandidates', () => {
     ];
 
     expect(claudeProviderCandidates(providers).map((p) => p.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('excludes new-api rows whose only anthropic-protocol model is switched off', () => {
+    const providers = [
+      row({
+        id: 'off',
+        platform: 'new-api',
+        models: ['claude-x', 'gpt-4o'],
+        model_protocols: { 'claude-x': 'anthropic', 'gpt-4o': 'openai' },
+        model_enabled: { 'claude-x': false },
+      }),
+      row({
+        id: 'on',
+        platform: 'new-api',
+        models: ['claude-x', 'gpt-4o'],
+        model_protocols: { 'claude-x': 'anthropic', 'gpt-4o': 'openai' },
+      }),
+    ];
+
+    expect(claudeProviderCandidates(providers).map((p) => p.id)).toEqual(['on']);
+  });
+});
+
+describe('claudeSyncSkipped', () => {
+  it('names a custom provider scoped to claude without an Anthropic URL (the "Not logged in" trap)', () => {
+    const providers = [row({ id: 'deepseek', name: 'DeepSeek', agent_scopes: ['aionrs', 'claude', 'opencode'] })];
+    expect(claudeSyncSkipped(providers)).toEqual([
+      { id: 'deepseek', name: 'DeepSeek', reason: 'missing_anthropic_base_url' },
+    ]);
+  });
+
+  it('stays silent once the Anthropic URL is filled in', () => {
+    const providers = [
+      row({
+        id: 'deepseek',
+        name: 'DeepSeek',
+        agent_scopes: ['claude'],
+        anthropic_base_url: 'https://api.deepseek.com/anthropic',
+      }),
+    ];
+    expect(claudeSyncSkipped(providers)).toEqual([]);
+  });
+
+  it('reports empty-scope providers too, with per-platform reasons', () => {
+    const providers = [
+      row({ id: 'keyless', api_key: '' }),
+      row({ id: 'newapi-openai-only', platform: 'new-api', model_protocols: { 'gpt-4o': 'openai' } }),
+      row({ id: 'plain-openai', platform: 'openai' }),
+      row({ id: 'no-base-url', platform: 'anthropic', base_url: '' }),
+    ];
+    expect(claudeSyncSkipped(providers)).toEqual([
+      { id: 'keyless', name: 'keyless', reason: 'missing_api_key' },
+      { id: 'newapi-openai-only', name: 'newapi-openai-only', reason: 'missing_anthropic_model' },
+      { id: 'plain-openai', name: 'plain-openai', reason: 'unsupported_platform' },
+      { id: 'no-base-url', name: 'no-base-url', reason: 'missing_base_url' },
+    ]);
+  });
+
+  it('ignores providers scoped away from claude and disabled ones', () => {
+    const providers = [
+      row({ id: 'office-only', agent_scopes: ['opencode'] }),
+      row({ id: 'off', platform: 'anthropic', base_url: 'https://api.anthropic.com', enabled: false }),
+    ];
+    expect(claudeSyncSkipped(providers)).toEqual([]);
   });
 });
 
@@ -112,5 +192,49 @@ describe('applyActiveProviderEnv', () => {
       row({ platform: 'anthropic', base_url: 'https://api.anthropic.com' })
     );
     expect(env.find((e) => e.name === 'ANTHROPIC_BASE_URL')?.value).toBe('https://api.anthropic.com');
+  });
+
+  it('stamps the first enabled model — a disabled models[0] must not leak into the model slots', () => {
+    const env = applyActiveProviderEnv(
+      claudeEnv(paths),
+      row({
+        anthropic_base_url: 'https://api.deepseek.com/anthropic',
+        models: ['glm-4.5-flash', 'glm-4.6'],
+        model_enabled: { 'glm-4.5-flash': false },
+      })
+    );
+    const value = (name: string) => env.find((e) => e.name === name)?.value;
+
+    expect(value('ANTHROPIC_MODEL')).toBe('glm-4.6');
+    expect(value('ANTHROPIC_DEFAULT_SONNET_MODEL')).toBe('glm-4.6');
+    expect(value('CLAUDE_CODE_SUBAGENT_MODEL')).toBe('glm-4.6');
+  });
+
+  it('spreads the enabled lineup across the model slots so every checked model is selectable', () => {
+    const env = applyActiveProviderEnv(
+      claudeEnv(paths),
+      row({
+        anthropic_base_url: 'https://api.deepseek.com/anthropic',
+        models: ['glm-4.6', 'glm-4.5-air'],
+      })
+    );
+    const value = (name: string) => env.find((e) => e.name === name)?.value;
+
+    expect(value('ANTHROPIC_MODEL')).toBe('glm-4.6');
+    expect(value('ANTHROPIC_DEFAULT_OPUS_MODEL')).toBe('glm-4.6');
+    expect(value('ANTHROPIC_DEFAULT_SONNET_MODEL')).toBe('glm-4.5-air');
+    // Slots beyond the lineup repeat the first model; the display layer
+    // collapses the duplicates by label.
+    expect(value('ANTHROPIC_DEFAULT_HAIKU_MODEL')).toBe('glm-4.6');
+    expect(value('ANTHROPIC_DEFAULT_FABLE_MODEL_NAME')).toBe('glm-4.6');
+  });
+
+  it('leaves the model slots neutralized when every model is switched off', () => {
+    const env = applyActiveProviderEnv(
+      claudeEnv(paths),
+      row({ anthropic_base_url: 'https://api.deepseek.com/anthropic', model_enabled: { 'deepseek-flash': false } })
+    );
+    expect(env.find((e) => e.name === 'ANTHROPIC_MODEL')?.value).toBe('');
+    expect(env.find((e) => e.name === 'ANTHROPIC_DEFAULT_SONNET_MODEL')?.value).toBe('');
   });
 });

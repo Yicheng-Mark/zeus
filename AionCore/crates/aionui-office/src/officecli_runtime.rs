@@ -30,7 +30,27 @@ pub(crate) struct OfficecliInstallCommand {
 }
 
 pub(crate) fn resolve_officecli_path() -> Option<PathBuf> {
-    resolve_command_path("officecli").or_else(resolve_known_officecli_install_path)
+    bundled_officecli_path()
+        .or_else(|| resolve_command_path("officecli"))
+        .or_else(resolve_known_officecli_install_path)
+}
+
+/// OfficeCli staged under the app's bundled managed resources (offline-first:
+/// packaged builds ship a copy so the first office task needs no install).
+/// Outside Bundled mode this is always `None` and resolution keeps its
+/// PATH/local-install behavior.
+pub(crate) fn bundled_officecli_path() -> Option<PathBuf> {
+    bundled_officecli_path_from(aionui_runtime::bundled_tool(aionui_runtime::TOOL_OFFICECLI))
+}
+
+fn bundled_officecli_path_from(tool: Option<&aionui_runtime::BundledTool>) -> Option<PathBuf> {
+    let tool = tool?;
+    let exe = if cfg!(windows) {
+        tool.root.join("officecli.exe")
+    } else {
+        tool.root.join("officecli")
+    };
+    exe.is_file().then_some(exe)
 }
 
 pub(crate) fn install_command() -> OfficecliInstallCommand {
@@ -137,6 +157,30 @@ mod tests {
     fn write_marker_file(path: &std::path::Path) {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, b"#!/bin/sh\nexit 0\n").unwrap();
+    }
+
+    #[test]
+    fn bundled_officecli_path_resolves_staged_executable() {
+        let tmp = tempfile::tempdir().unwrap();
+        let tool = aionui_runtime::BundledTool {
+            name: "officecli".into(),
+            version: "1.0.0".into(),
+            root: tmp.path().join("officecli-1.0.0"),
+            executables: vec![],
+        };
+        let exe_name = if cfg!(windows) { "officecli.exe" } else { "officecli" };
+        let exe = tool.root.join(exe_name);
+        write_marker_file(&exe);
+
+        assert_eq!(bundled_officecli_path_from(Some(&tool)), Some(exe));
+        assert_eq!(bundled_officecli_path_from(None), None);
+
+        // A staged root without the executable must not resolve.
+        let empty_tool = aionui_runtime::BundledTool {
+            root: tmp.path().join("officecli-empty"),
+            ..tool
+        };
+        assert_eq!(bundled_officecli_path_from(Some(&empty_tool)), None);
     }
 
     #[test]

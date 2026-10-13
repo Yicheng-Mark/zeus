@@ -78,15 +78,16 @@ function buildModelInfoFromPayload(value: unknown): AcpModelInfo | null {
     return null;
   }
 
-  const available_models = payload.available_models.map(normalizeModelOption).filter((item) => item !== null);
-  if (available_models.length === 0) return null;
+  const reported = payload.available_models.map(normalizeModelOption).filter((item) => item !== null);
+  if (reported.length === 0) return null;
 
   const current_model_id =
     typeof payload.current_model_id === 'string'
       ? payload.current_model_id
       : typeof payload.currentModelId === 'string'
         ? payload.currentModelId
-        : (available_models[0]?.id ?? null);
+        : (reported[0]?.id ?? null);
+  const available_models = filterRuntimeModelCatalog(reported, current_model_id);
   const matchedModel = available_models.find((model) => model.id === current_model_id);
   const current_model_label =
     typeof payload.current_model_label === 'string'
@@ -100,6 +101,33 @@ function buildModelInfoFromPayload(value: unknown): AcpModelInfo | null {
     current_model_label,
     available_models,
   };
+}
+
+/** Display filter for agent-reported model catalogs. The CLI engines pad
+ *  their picker with entries the user never configured: opencode merges its
+ *  built-in free catalog (`opencode/*`) around the injected `zeus-*`
+ *  providers, and claude exposes one slot per env-mapped model plus a
+ *  "default" slot that always mirrors the first model. When injected zeus-*
+ *  entries exist keep only those; drop the redundant "default" slot;
+ *  collapse entries that share a label (claude slots beyond the enabled
+ *  lineup repeat the first model). The current model's entry always survives
+ *  so the picker never shows a current value missing from the list. */
+export function filterRuntimeModelCatalog(
+  models: Array<{ id: string; label: string; description?: string }>,
+  currentId?: string | null
+): Array<{ id: string; label: string; description?: string }> {
+  let filtered = models.some((model) => model.id.startsWith('zeus-'))
+    ? models.filter((model) => model.id.startsWith('zeus-'))
+    : models.filter((model) => model.id !== 'default' || models.length <= 1);
+  const seenLabels = new Set<string>();
+  filtered = filtered.filter((model) => {
+    if (seenLabels.has(model.label)) return false;
+    seenLabels.add(model.label);
+    return true;
+  });
+  const current = currentId ? models.find((model) => model.id === currentId) : undefined;
+  if (current && !filtered.some((model) => model.id === current.id)) filtered.push(current);
+  return filtered;
 }
 
 function getConfigOptionCurrentValue(option: AcpSessionConfigOption): string | undefined {
@@ -137,12 +165,13 @@ function buildModelInfoFromConfigOptions(configOptions: AcpSessionConfigOption[]
   const modelOption = configOptions.find((option) => option.category === 'model' && option.type === 'select');
   if (!modelOption?.options || modelOption.options.length === 0) return null;
 
-  const available_models = modelOption.options.map((option) => ({
+  const reported = modelOption.options.map((option) => ({
     id: option.value,
     label: option.label || option.name || option.value,
     description: option.description || undefined,
   }));
-  const current_model_id = getConfigOptionCurrentValue(modelOption) || available_models[0]?.id || null;
+  const current_model_id = getConfigOptionCurrentValue(modelOption) || reported[0]?.id || null;
+  const available_models = filterRuntimeModelCatalog(reported, current_model_id);
   const matchedModel = available_models.find((model) => model.id === current_model_id);
 
   return {

@@ -458,3 +458,106 @@ describe('verifyBundledAioncoreResources', () => {
     expect(result.failures).toContainEqual(expect.objectContaining({ reason: 'runtime_key_mismatch' }));
   });
 });
+
+describe('verifyBundledAioncoreResources — managed tools', () => {
+  // `tools` (python / git / officecli, staged by prepare-managed-extras.js) is
+  // additive: absent is valid (dev bundles stage none); present entries must be
+  // intact so a truncated staging fails the build instead of a clean machine.
+
+  let tmp: string;
+  let resourcesDir: string;
+  let managedResourcesDir: string;
+
+  const verify = () => verifyBundledAioncoreResources({ resourcesDir, electronPlatformName: 'win32', targetArch: 'x64' });
+
+  const writeTools = (tools: unknown) => {
+    const manifestPath = join(managedResourcesDir, 'manifest.json');
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    manifest.tools = tools;
+    writeJson(manifestPath, manifest);
+  };
+
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), 'aionui-managed-tools-'));
+    resourcesDir = join(tmp, 'resources');
+    managedResourcesDir = seedRuntimeKey(resourcesDir, {
+      runtimeKey: 'win32-x64',
+      platform: 'win32',
+      arch: 'x64',
+      nodeRoot: 'node/node-v24.11.0-win-x64',
+      nodeExecutable: 'node.exe',
+    });
+  });
+
+  afterEach(() => {
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('passes when no tools are staged (older bundles, non-win targets)', () => {
+    const result = verify();
+    expect(result.missing).toEqual([]);
+    expect(result.failures).toEqual([]);
+  });
+
+  it('passes when staged tool trees and executables are intact', () => {
+    writeFile(join(managedResourcesDir, 'python', 'python-3.12.10-win-x64', 'python.exe'));
+    writeFile(join(managedResourcesDir, 'git', 'mingit-2.56.0.2-win-x64', 'cmd', 'git.exe'));
+    writeTools([
+      { name: 'python', version: '3.12.10', root: 'python/python-3.12.10-win-x64', executables: ['python.exe'] },
+      { name: 'git', version: '2.56.0.2', root: 'git/mingit-2.56.0.2-win-x64', executables: ['cmd/git.exe'] },
+    ]);
+
+    const result = verify();
+
+    expect(result.failures).toEqual([]);
+    expect(result.missing).toEqual([]);
+    expect(result.checked).toContain('bundled-aioncore/win32-x64/managed-resources/python/python-3.12.10-win-x64/python.exe');
+    expect(result.checked).toContain('bundled-aioncore/win32-x64/managed-resources/git/mingit-2.56.0.2-win-x64/cmd/git.exe');
+  });
+
+  it('fails when a staged tool directory or executable is missing', () => {
+    // python tree staged intact; git tree declared but never materialized.
+    writeFile(join(managedResourcesDir, 'python', 'python-3.12.10-win-x64', 'python.exe'));
+    writeTools([
+      { name: 'python', version: '3.12.10', root: 'python/python-3.12.10-win-x64', executables: ['python.exe'] },
+      { name: 'git', version: '2.56.0.2', root: 'git/mingit-2.56.0.2-win-x64', executables: ['cmd/git.exe'] },
+    ]);
+
+    const result = verify();
+
+    expect(result.missing).toContain('bundled-aioncore/win32-x64/managed-resources/git/mingit-2.56.0.2-win-x64');
+    expect(result.failures).toContainEqual(expect.objectContaining({ component: 'git', reason: 'missing_directory' }));
+
+    // Now the dir exists but the executable does not.
+    mkdirSync(join(managedResourcesDir, 'git', 'mingit-2.56.0.2-win-x64', 'cmd'), { recursive: true });
+    const second = verify();
+    expect(second.missing).toContain('bundled-aioncore/win32-x64/managed-resources/git/mingit-2.56.0.2-win-x64/cmd/git.exe');
+  });
+
+  it('fails on duplicate tool names and malformed entries', () => {
+    writeFile(join(managedResourcesDir, 'officecli', 'officecli-v1.0.0', 'officecli.exe'));
+    writeTools([
+      { name: 'officecli', version: 'v1.0.0', root: 'officecli/officecli-v1.0.0', executables: ['officecli.exe'] },
+      { name: 'officecli', version: 'v1.0.0', root: 'officecli/officecli-v1.0.0', executables: [] },
+    ]);
+
+    let result = verify();
+    expect(result.failures).toContainEqual(expect.objectContaining({ reason: 'duplicate_tool_name' }));
+
+    writeTools([{ name: 'officecli', version: '', root: 'officecli/officecli-v1.0.0', executables: [] }]);
+    result = verify();
+    expect(result.failures).toContainEqual(expect.objectContaining({ reason: 'invalid_schema' }));
+
+    writeTools('not-an-array');
+    result = verify();
+    expect(result.failures).toContainEqual(expect.objectContaining({ component: 'managed-tools', reason: 'invalid_schema' }));
+  });
+
+  it('rejects unsafe tool root paths like cli roots', () => {
+    writeTools([{ name: 'git', version: '2.56.0.2', root: '../escape', executables: [] }]);
+    const result = verify();
+    expect(result.failures).toContainEqual(
+      expect.objectContaining({ component: 'git', reason: 'invalid_contract_path' })
+    );
+  });
+});

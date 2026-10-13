@@ -194,6 +194,71 @@ function verifyManagedResourcesContract(baseDir, runtimeKey, checked, missing, f
 
   verifyManagedNodeFromContract(managedRoot, runtimeKey, contract, checked, missing, failures);
   verifyManagedClisFromContract(managedRoot, runtimeKey, contract, checked, missing, failures);
+  verifyManagedToolsFromContract(managedRoot, runtimeKey, contract, checked, missing, failures);
+}
+
+/**
+ * `tools` (python / git / officecli, staged by prepare-managed-extras.js) is an
+ * additive schema-v2 section: absent means "not staged" (valid), entries that
+ * ARE present must be well-formed and their trees intact — a truncated staging
+ * must fail the build, not surface as a broken clean-machine install.
+ */
+function verifyManagedToolsFromContract(baseDir, runtimeKey, contract, checked, missing, failures) {
+  const manifestPath = contractBundledPath(runtimeKey, 'manifest.json');
+  const tools = contract.tools === undefined ? [] : contract.tools;
+  if (!Array.isArray(tools)) {
+    addSchemaFailure(failures, missing, 'managed-tools', 'invalid_schema', manifestPath);
+    return;
+  }
+
+  const seen = new Set();
+  for (const tool of tools) {
+    if (!tool || typeof tool !== 'object' || Array.isArray(tool) || !stringField(tool.name)) {
+      addSchemaFailure(failures, missing, 'managed-tools', 'invalid_schema', manifestPath);
+      continue;
+    }
+    if (seen.has(tool.name)) {
+      failures.push({ component: 'managed-tools', reason: 'duplicate_tool_name', path: manifestPath });
+      continue;
+    }
+    seen.add(tool.name);
+    verifyManagedToolFromContract(baseDir, runtimeKey, tool, checked, missing, failures);
+  }
+}
+
+function verifyManagedToolFromContract(baseDir, runtimeKey, tool, checked, missing, failures) {
+  const manifestPath = contractBundledPath(runtimeKey, 'manifest.json');
+  if (!stringField(tool.version) || !stringField(tool.root)) {
+    addSchemaFailure(failures, missing, tool.name, 'invalid_schema', manifestPath);
+    return;
+  }
+  const executables = tool.executables === undefined ? [] : tool.executables;
+  if (!stringArray(executables)) {
+    addSchemaFailure(failures, missing, tool.name, 'invalid_schema', manifestPath);
+    return;
+  }
+  if (!validateContractPathField(tool.root, tool.name, 'root', failures)) return;
+  for (const [index, entry] of executables.entries()) {
+    if (!validateContractPathField(entry, tool.name, `executables[${index}]`, failures)) return;
+  }
+
+  const rootRelative = contractBundledPath(runtimeKey, tool.root);
+  checked.push(rootRelative);
+  if (!isDirectory(joinContractPath(baseDir, tool.root))) {
+    missing.push(rootRelative);
+    failures.push({
+      component: tool.name,
+      reason: 'missing_directory',
+      version: tool.version,
+      runtimeKey,
+      path: rootRelative,
+    });
+    return;
+  }
+
+  for (const executable of executables) {
+    requireContractFile(baseDir, runtimeKey, tool, tool.root, executable, checked, missing, failures);
+  }
 }
 
 function verifyManagedNodeFromContract(baseDir, runtimeKey, contract, checked, missing, failures) {

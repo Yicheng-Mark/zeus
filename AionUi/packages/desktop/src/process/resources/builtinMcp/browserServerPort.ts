@@ -101,9 +101,39 @@ export const buildMcpSpawnCommand = (deps: {
   platform: string;
   version: string;
   browserUrl: string;
+  /** Absolute entry file of the app-vendored chrome-devtools-mcp, when staged. */
+  vendoredEntry?: string | null;
 }): { command: string; args: string[] } => {
+  /**
+   * 预置副本优先：用正在运行本包装脚本的 node（process.execPath）以绝对入口启动，
+   * 零 PATH 依赖、零网络依赖 —— 裸机上「npx 不存在」和「首用联网拉包」两个故障同时
+   * 消失。execPath 是真实 exe，不经 cmd.exe，绕开 .cmd 批处理无法直接 spawn 的坑。
+   *
+   * The vendored copy wins: launched through the very node running this wrapper
+   * (process.execPath) with an absolute entry file — no PATH lookup, no
+   * first-use network fetch. execPath is a real executable, so no cmd.exe hop
+   * and none of the .cmd batch spawning pitfalls.
+   */
+  if (deps.vendoredEntry) {
+    return { command: process.execPath, args: [deps.vendoredEntry, '--browser-url', deps.browserUrl] };
+  }
   const mcpArgs = ['-y', `chrome-devtools-mcp@${deps.version}`, '--browser-url', deps.browserUrl];
   return deps.platform === 'win32'
     ? { command: 'cmd.exe', args: ['/c', 'npx', ...mcpArgs] }
     : { command: 'npx', args: mcpArgs };
+};
+
+export const VENDORED_CHROME_DEVTOOLS_MCP_ENV = 'AIONUI_VENDORED_CHROME_DEVTOOLS_MCP';
+
+/**
+ * 读取主进程注入的预置 chrome-devtools-mcp 入口路径（见 runBackendMigrations 的
+ * buildBuiltinBrowserServer）。没有注入（开发环境未预置）时返回 null，调用方回退 npx。
+ *
+ * Reads the vendored chrome-devtools-mcp entry path injected by the main
+ * process (see buildBuiltinBrowserServer in runBackendMigrations). Returns
+ * null when not staged (dev); callers fall back to npx.
+ */
+export const resolveVendoredEntry = (deps: ResolveBrowserUrlDeps): string | null => {
+  const raw = deps.env[VENDORED_CHROME_DEVTOOLS_MCP_ENV]?.trim();
+  return raw ? raw : null;
 };

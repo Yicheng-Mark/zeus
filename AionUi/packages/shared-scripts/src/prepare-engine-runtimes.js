@@ -43,9 +43,43 @@ function fileSizeMb(filePath) {
 
 function downloadFile(url, outputPath, label) {
   console.log(`  Downloading ${label} from ${url}`);
-  execFileSync('curl', ['-L', '--fail', '--silent', '--show-error', '-o', outputPath, url], {
-    timeout: DOWNLOAD_TIMEOUT_MS,
-  });
+  // --retry covers flaky links (CDN resets mid-body leave a truncated tarball
+  // that only surfaces as a tar/gzip error at extraction); --retry-all-errors
+  // because curl does not retry HTTP-level failures by default.
+  execFileSync(
+    'curl',
+    ['-L', '--fail', '--silent', '--show-error', '--retry', '3', '--retry-all-errors', '--retry-delay', '2', '-o', outputPath, url],
+    {
+      timeout: DOWNLOAD_TIMEOUT_MS,
+    }
+  );
+}
+
+/**
+ * npm registry tarball URLs, registry first then mirrors — same mirror-first
+ * pattern as prepareHubResources/officecli installs: registry.npmjs.org is
+ * unreachable-truncated from some networks (mainland China included), while
+ * npmmirror serves the identical artifacts.
+ */
+function npmTarballDownloadUrls(registryTarball) {
+  const urls = [registryTarball];
+  const mirror = registryTarball.replace('https://registry.npmjs.org/', 'https://registry.npmmirror.com/');
+  if (mirror !== registryTarball) urls.push(mirror);
+  return urls;
+}
+
+function downloadFirstAvailable(urls, outputPath, label) {
+  let lastError;
+  for (const url of urls) {
+    try {
+      downloadFile(url, outputPath, label);
+      return url;
+    } catch (error) {
+      lastError = error;
+      console.warn(`  Download failed from ${url}: ${error.message}`);
+    }
+  }
+  throw lastError ?? new Error(`no download URLs for ${label}`);
 }
 
 function fetchJson(url) {
@@ -74,7 +108,13 @@ function opencodeAsset(pin) {
 
 function extractTar(tgz, dir) {
   ensureDirectory(dir);
-  execFileSync('tar', ['-xzf', tgz, '-C', dir], { timeout: DOWNLOAD_TIMEOUT_MS });
+  // Windows: resolve tar explicitly from System32. A bare 'tar' on PATH can
+  // pick up Git Bash's GNU tar, which reads `C:\...` as host `C` ("Cannot
+  // connect to C: resolve failed") — the bsdtar in System32 is what
+  // ensureRuntime.ts relies on at runtime, so use the same one here.
+  const tarCommand =
+    process.platform === 'win32' ? path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe') : 'tar';
+  execFileSync(tarCommand, ['-xzf', tgz, '-C', dir], { timeout: DOWNLOAD_TIMEOUT_MS });
 }
 
 function extractZip(zip, dir) {
@@ -103,7 +143,7 @@ function fetchClaude(pin) {
   fs.rmSync(dest, { recursive: true, force: true });
   const tgz = path.join(dest, 'sdk-platform.tgz');
   ensureDirectory(dest);
-  downloadFile(tarball, tgz, `${NPM_PLATFORM_PACKAGE}@${version}`);
+  downloadFirstAvailable(npmTarballDownloadUrls(tarball), tgz, `${NPM_PLATFORM_PACKAGE}@${version}`);
   extractTar(tgz, work);
   const extracted = findFile(work, path.basename(exe));
   if (!extracted) throw new Error(`tarball for ${NPM_PLATFORM_PACKAGE}@${version} contains no claude binary`);

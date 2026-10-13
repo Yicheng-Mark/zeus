@@ -7,6 +7,7 @@
 import { ipcBridge } from '@/common';
 import type { IResponseMessage } from '@/common/adapter/ipcBridge';
 import type { AcpConfigOptionDto, AcpModelInfo } from '@/common/types/platform/acpTypes';
+import { filterRuntimeModelCatalog } from '@/renderer/utils/model/agentRuntimeCatalog';
 import {
   type AcpConfigOptionsPort,
   type AcpConfigSetStatus,
@@ -93,11 +94,14 @@ export const useAcpModelInfo = ({
     return {
       current_model_id: currentModelId,
       current_model_label: model.options.find((item) => item.value === currentModelId)?.label || currentModelId || null,
-      available_models: model.options.map((item) => ({
-        id: item.value,
-        label: item.label,
-        description: item.description ?? undefined,
-      })),
+      available_models: filterRuntimeModelCatalog(
+        model.options.map((item) => ({
+          id: item.value,
+          label: item.label,
+          description: item.description ?? undefined,
+        })),
+        currentModelId
+      ),
     };
   }, [initialModelId, model]);
   const persistedModelInfo = useMemo<AcpModelInfo | null>(() => {
@@ -120,7 +124,14 @@ export const useAcpModelInfo = ({
     const handler = (message: IResponseMessage) => {
       if (message.conversation_id !== conversation_id) return;
       if (message.type === 'acp_model_info' && message.data) {
-        const incoming = normalizeInitialModel(message.data as AcpModelInfo, initialModelId);
+        const raw = message.data as AcpModelInfo;
+        const incoming = normalizeInitialModel(
+          {
+            ...raw,
+            available_models: filterRuntimeModelCatalog(raw.available_models ?? [], raw.current_model_id),
+          },
+          initialModelId
+        );
         setLegacyModelInfo((previous) => (sameModelInfo(previous, incoming) ? previous : incoming));
       } else if (message.type === 'codex_model_info' && message.data) {
         const data = message.data as { model?: string };

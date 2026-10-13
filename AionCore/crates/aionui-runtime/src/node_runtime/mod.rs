@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use tracing::{debug, info, warn};
 
+pub(crate) use managed::probe_preferred_local_runtime;
 pub use managed::{
     install_and_validate as install_managed_runtime, managed_node_contract_for_export,
     probe_support as probe_node_runtime_supported,
@@ -41,6 +42,9 @@ pub fn probe_runtime_command(command: &str) -> RuntimeCommandProbe {
             },
             "npx" => RuntimeCommandProbe::NodeTool {
                 tool: NodeTool::Npx,
+                command: trimmed.to_owned(),
+            },
+            "python" | "python3" => RuntimeCommandProbe::PythonTool {
                 command: trimmed.to_owned(),
             },
             _ => RuntimeCommandProbe::PathLookup {
@@ -104,7 +108,21 @@ pub async fn ensure_runtime_command_with_reporter(
             let runtime = ensure_node_runtime_with_reporter(reporter).await?;
             Ok(tool_command(tool, &runtime))
         }
+        RuntimeCommandProbe::PythonTool { command } => resolve_python_command(&command),
     }
+}
+
+/// Resolve a `python` / `python3` command: bundled managed python when staged,
+/// otherwise the host PATH. Unlike the node runtime this never downloads — a
+/// missing bundled python simply means python-based MCP servers need a host
+/// install (same as today).
+fn resolve_python_command(command: &str) -> Result<ResolvedCommand, NodeRuntimeError> {
+    if let Some(exe) = crate::managed_tools::bundled_python_exe() {
+        return Ok(ResolvedCommand::plain(exe));
+    }
+    crate::resolve_command_path(command)
+        .map(ResolvedCommand::plain)
+        .ok_or_else(|| NodeRuntimeError::system_invalid(format!("command '{command}' not found in PATH")))
 }
 
 fn runtime_source_label(source: ResolvedNodeSource) -> &'static str {
@@ -124,6 +142,9 @@ fn log_probe_decision(probe: &RuntimeCommandProbe) {
         }
         RuntimeCommandProbe::NodeTool { tool, command } => {
             debug!(command, tool = ?tool, probe = "node-tool", "node runtime probe decided");
+        }
+        RuntimeCommandProbe::PythonTool { command } => {
+            debug!(command, probe = "python-tool", "node runtime probe decided");
         }
     }
 }

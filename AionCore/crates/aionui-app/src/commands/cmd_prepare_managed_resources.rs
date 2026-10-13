@@ -44,6 +44,10 @@ pub async fn run_prepare_managed_resources(args: PrepareManagedResourcesArgs) ->
         runtime_key,
         node,
         clis: Vec::new(),
+        // Auxiliary tools (python / git / officecli / vendored MCP) are staged
+        // later by the desktop build pipeline (prepare-managed-extras.js),
+        // which extends the manifest written here.
+        tools: Vec::new(),
     };
     let manifest_path = write_contract(&output_root, &contract)
         .map_err(|error| prepare_managed_resources_error_with_detail("contract.write", error))?;

@@ -1,6 +1,7 @@
 import type { IProvider } from '@/common/config/storage';
+import { type AgentScopeBackend, AGENT_SCOPE_LABEL_KEYS } from '@/common/utils/agentScopes';
 import ModalHOC from '@/renderer/utils/ui/ModalHOC';
-import { Form, Input, Message, Select, Tag } from '@arco-design/web-react';
+import { Alert, Form, Input, Message, Select, Tag } from '@arco-design/web-react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import AionModal from '@/renderer/components/base/AionModal';
@@ -19,6 +20,17 @@ const EditModeModal = ModalHOC<{ data?: IProvider; onChange(data: IProvider): vo
     // Watch bedrockAuthMethod only for UI conditional rendering (not for auto-refresh)
     const bedrockAuthMethod = Form.useWatch('bedrockAuthMethod', form);
     const isBedrock = data?.platform === 'bedrock';
+    // Editing keeps the platform fixed; the claude engine can only run custom
+    // platforms through their separate Anthropic-protocol endpoint — mirror the
+    // add-platform modal so an existing row can gain (or clear) that endpoint.
+    const isCustomPlatform = data?.platform === 'custom';
+    const agentScopesValue = Form.useWatch('agent_scopes', form);
+    const anthropicBaseUrlValue = Form.useWatch('anthropic_base_url', form);
+    const claudeScopeLacksAnthropicUrl =
+      isCustomPlatform &&
+      !isBedrock &&
+      (agentScopesValue ?? []).includes('claude') &&
+      !(anthropicBaseUrlValue ?? '').trim();
 
     // Watch the live form values so editing the Base URL (or API key) re-keys the
     // model-list SWR cache. Without this the list would keep fetching from the
@@ -144,6 +156,18 @@ const EditModeModal = ModalHOC<{ data?: IProvider; onChange(data: IProvider): vo
               ...values,
               // Ensure models is always an array
               models: Array.isArray(values.model) ? values.model : [values.model],
+              agent_scopes: (values.agent_scopes as AgentScopeBackend[]) ?? data?.agent_scopes ?? [],
+              // Same dual-protocol normalization as AddPlatformModal, adapted
+              // to the backend's partial-update semantics: the update keeps a
+              // column when its field is absent, so a custom platform must send
+              // an explicit '' to clear the Anthropic surface (the sync then
+              // sees the provider as claude-ineligible). Non-custom rows leave
+              // the field absent so any stored value is preserved.
+              anthropic_base_url: isCustomPlatform
+                ? !isBedrock && values.anthropic_base_url?.trim()
+                  ? values.anthropic_base_url.trim()
+                  : ''
+                : data?.anthropic_base_url,
             };
 
             // Add Bedrock configuration if platform is Bedrock
@@ -373,6 +397,38 @@ const EditModeModal = ModalHOC<{ data?: IProvider; onChange(data: IProvider): vo
                 options={isFullUrl ? [] : modelListState.data?.models || []}
               />
             </Form.Item>
+
+            {/* Anthropic 兼容地址 - custom platforms only / Anthropic-compatible endpoint */}
+            {isCustomPlatform && !isBedrock && (
+              <Form.Item
+                label={t('settings.anthropicBaseUrl')}
+                field='anthropic_base_url'
+                extra={
+                  <span className='text-11px text-t-secondary leading-4'>{t('settings.anthropicBaseUrlTip')}</span>
+                }
+              >
+                <Input placeholder='https://api.deepseek.com/anthropic' allowClear />
+              </Form.Item>
+            )}
+
+            {/* 适用于哪些助手 / Which assistants can use these models */}
+            <Form.Item
+              label={t('settings.agentScopes')}
+              field='agent_scopes'
+              extra={<span className='text-11px text-t-secondary leading-4'>{t('settings.agentScopesTip')}</span>}
+            >
+              <Select
+                mode='multiple'
+                options={(['aionrs', 'claude', 'opencode'] as AgentScopeBackend[]).map((backend) => ({
+                  label: t(AGENT_SCOPE_LABEL_KEYS[backend]),
+                  value: backend,
+                }))}
+              />
+            </Form.Item>
+
+            {claudeScopeLacksAnthropicUrl && (
+              <Alert type='warning' content={t('settings.claudeScopeNeedsAnthropicUrl')} className='!rounded-8px' />
+            )}
           </Form>
         </div>
       </AionModal>

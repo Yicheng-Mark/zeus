@@ -6,9 +6,11 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  VENDORED_CHROME_DEVTOOLS_MCP_ENV,
   buildMcpSpawnCommand,
   resolveBridgeToken,
   resolveBrowserUrl,
+  resolveVendoredEntry,
 } from '@/process/resources/builtinMcp/browserServerPort';
 
 describe('resolveBrowserUrl', () => {
@@ -143,5 +145,55 @@ describe('buildMcpSpawnCommand — issue #3883', () => {
     const { args } = buildMcpSpawnCommand({ platform: 'win32', version, browserUrl });
     expect(args).not.toContain('chrome-devtools-mcp@latest');
     expect(args).toContain(`chrome-devtools-mcp@${version}`);
+  });
+});
+
+/**
+ * 预置副本：打包版随包带 chrome-devtools-mcp，包装脚本用运行自己的 node 以绝对入口
+ * 启动它 —— 不查 PATH、不联网拉包，裸机（无 node/npm）也能用。
+ *
+ * Vendored copy: packaged builds ship chrome-devtools-mcp and the wrapper
+ * launches it through its own node (process.execPath) with an absolute entry —
+ * no PATH lookup, no first-use network fetch, so clean machines work.
+ */
+describe('buildMcpSpawnCommand — vendored entry', () => {
+  const version = '0.16.0';
+  const browserUrl = 'http://127.0.0.1:61622';
+  const vendoredEntry = 'C:\\app\\resources\\mcp\\chrome-devtools-mcp\\build\\src\\index.js';
+
+  it('spawns the vendored entry through process.execPath, not npx/cmd.exe', () => {
+    for (const platform of ['win32', 'darwin', 'linux']) {
+      const { command, args } = buildMcpSpawnCommand({ platform, version, browserUrl, vendoredEntry });
+      expect(command).toBe(process.execPath);
+      expect(args[0]).toBe(vendoredEntry);
+      expect(args).not.toContain('npx');
+    }
+  });
+
+  it('keeps --browser-url as its own argv entry after the entry file', () => {
+    const { args } = buildMcpSpawnCommand({ platform: 'win32', version, browserUrl, vendoredEntry });
+    const flagIndex = args.indexOf('--browser-url');
+    expect(flagIndex).toBe(1);
+    expect(args[flagIndex + 1]).toBe(browserUrl);
+  });
+
+  it('falls back to the npx form without a vendored entry', () => {
+    const { command } = buildMcpSpawnCommand({ platform: 'win32', version, browserUrl, vendoredEntry: null });
+    expect(command).toBe('cmd.exe');
+    const { command: bare } = buildMcpSpawnCommand({ platform: 'win32', version, browserUrl });
+    expect(bare).toBe('cmd.exe');
+  });
+});
+
+describe('resolveVendoredEntry', () => {
+  it('reads the entry path injected by the main process', () => {
+    expect(resolveVendoredEntry({ env: { [VENDORED_CHROME_DEVTOOLS_MCP_ENV]: '/res/mcp/entry.js' } })).toBe(
+      '/res/mcp/entry.js'
+    );
+  });
+
+  it('returns null when not staged (dev), so the caller falls back to npx', () => {
+    expect(resolveVendoredEntry({ env: {} })).toBeNull();
+    expect(resolveVendoredEntry({ env: { [VENDORED_CHROME_DEVTOOLS_MCP_ENV]: '   ' } })).toBeNull();
   });
 });

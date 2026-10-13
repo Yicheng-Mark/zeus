@@ -205,8 +205,16 @@ const AssistantEditorSections: React.FC<AssistantEditorSectionsProps> = ({ edito
     }
 
     // CLI engines (办公/开发): the user's scoped provider lineup comes first,
-    // the engine's own runtime catalog after it.
-    return [...providerModelOptions, ...catalogOptions];
+    // the engine's own runtime catalog after it. Catalog entries that merely
+    // mirror a provider row are dropped so the same model is not listed twice:
+    // by value for opencode (`zeus-<providerId>/<model>` ids) and by bare
+    // model name for claude (slot labels carry the env-mapped model name).
+    const providerValues = new Set(providerModelOptions.map((option) => option.value));
+    const providerModelNames = new Set(providerModelOptions.map((option) => option.label.split(' · ').pop() ?? option.label));
+    return [
+      ...providerModelOptions,
+      ...catalogOptions.filter((option) => !providerValues.has(option.value) && !providerModelNames.has(option.label)),
+    ];
   }, [currentAgentRuntimeModelInfo, currentBackend, editAgent, editAgentRuntimeKey, providerModelOptions]);
   const permissionOptions = useMemo<AgentModeOption[]>(
     () =>

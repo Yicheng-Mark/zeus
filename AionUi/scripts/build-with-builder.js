@@ -827,6 +827,13 @@ try {
   const { prepareEngineRuntimes } = require('../packages/shared-scripts/src/prepare-engine-runtimes.js');
   prepareEngineRuntimes({ projectRoot, platform: process.platform, arch: targetArch });
 
+  // 5c. Stage managed extras into the bundled managed-resources tree (python /
+  // MinGit / officecli / vendored chrome-devtools-mcp) so packaged builds are
+  // fully self-contained — clean machines need no installs, no first-use
+  // downloads. No-op for non-win32-x64 and behind AIONUI_MANAGED_EXTRAS_SKIP=1.
+  const { prepareManagedExtras } = require('../packages/shared-scripts/src/prepare-managed-extras.js');
+  prepareManagedExtras({ projectRoot, platform: process.platform, arch: targetArch });
+
   // 6. Prepare hub resources (index.json + extension zips for offline fallback)
   execSync('node scripts/prepareHubResources.js', { stdio: 'inherit', env: process.env });
 

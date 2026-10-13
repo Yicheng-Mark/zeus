@@ -8,6 +8,7 @@ mod engine_gate;
 mod http_client;
 pub mod managed_resources;
 pub mod managed_resources_contract;
+pub mod managed_tools;
 pub use managed_resources_contract::current_runtime_key;
 pub mod node_runtime;
 mod registry_npx_lock;
@@ -18,6 +19,9 @@ pub use agent_env::agent_process_env;
 pub use cache::init;
 pub use engine_gate::path_agent_fallback_allowed;
 pub use managed_resources::{ManagedResourcesMode, managed_resources_mode, set_managed_resources_mode};
+pub use managed_tools::{
+    BundledTool, TOOL_GIT, TOOL_OFFICECLI, TOOL_PYTHON, bundled_python_exe, bundled_tool, bundled_tools,
+};
 pub use node_runtime::{
     DoctorRow, NodeRuntimeError, NodeRuntimeFailureKind, NodeRuntimeProgress, NodeRuntimeProgressPhase,
     NodeRuntimeProgressReporter, NodeRuntimeSupport, NodeTool, ResolvedCommand, ResolvedNodeRuntime,

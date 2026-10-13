@@ -57,6 +57,16 @@ const getProtocolLabel = (protocol: string): string => {
   return NEW_API_PROTOCOL_OPTIONS.find((p) => p.value === protocol)?.label || 'OpenAI';
 };
 
+/** Why a claude-scoped provider was skipped by the runtime sync — i18n keys
+ *  matching ClaudeSyncSkipReason from modelProviders.ts. */
+const CLAUDE_SKIP_REASON_KEYS: Record<string, string> = {
+  missing_api_key: 'settings.claudeSkipMissingApiKey',
+  missing_base_url: 'settings.claudeSkipMissingBaseUrl',
+  missing_anthropic_base_url: 'settings.claudeSkipMissingAnthropicUrl',
+  missing_anthropic_model: 'settings.claudeSkipMissingAnthropicModel',
+  unsupported_platform: 'settings.claudeSkipUnsupportedPlatform',
+};
+
 /**
  * 获取下一个协议（循环切换）
  * Get next protocol (cycle through options)
@@ -117,12 +127,27 @@ const ModelModalContent: React.FC = () => {
   /**
    * Push the new provider lineup into the isolated CLI runtime configs
    * (opencode.json / claude env override) so scoped models become usable
-   * without an app restart. Fire-and-forget: failures only log.
+   * without an app restart. Fire-and-forget for the sync itself, but when the
+   * claude engine ends up with no usable provider the skipped ones are named
+   * right here — otherwise the engine only fails later with an opaque
+   * "Not logged in".
    */
   const syncAgentRuntimes = () => {
-    void window.electronAPI?.syncAgentModelRuntimes?.().catch((error) => {
-      console.error('Failed to sync agent model runtimes:', error);
-    });
+    void window.electronAPI
+      ?.syncAgentModelRuntimes?.()
+      .then((report) => {
+        if (report?.claude && !report.claude.providerId && report.claude.skipped.length > 0) {
+          const detail = report.claude.skipped
+            .map(
+              (s) => `${s.name}（${t(CLAUDE_SKIP_REASON_KEYS[s.reason] ?? 'settings.claudeSkipUnsupportedPlatform')}）`
+            )
+            .join('、');
+          message.warning({ content: t('settings.claudeProviderSkippedWarning', { detail }), duration: 6000 });
+        }
+      })
+      .catch((error) => {
+        console.error('Failed to sync agent model runtimes:', error);
+      });
   };
 
   /**
@@ -354,7 +379,12 @@ const ModelModalContent: React.FC = () => {
       <Button type='text' size='small' onClick={clearAllHealthData} className='!text-t-secondary hover:!text-t-primary'>
         {t('settings.clearStatus')}
       </Button>
-      <Button type='primary' size='small' className='!h-32px !rounded-8px !px-14px' onClick={() => addPlatformModalCtrl.open()}>
+      <Button
+        type='primary'
+        size='small'
+        className='!h-32px !rounded-8px !px-14px'
+        onClick={() => addPlatformModalCtrl.open()}
+      >
         {t('settings.addModel')}
       </Button>
     </>

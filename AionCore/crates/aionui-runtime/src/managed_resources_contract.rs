@@ -36,6 +36,30 @@ pub struct ManagedResourcesContract {
     pub runtime_key: String,
     pub node: ManagedNodeResourceContract,
     pub clis: Vec<ManagedCliResourceContract>,
+    /// Auxiliary tools staged into the bundle by the desktop build pipeline
+    /// (python / git / officecli, …). Additive to schema v2: absent in older
+    /// bundles and dev environments, never required, tolerated by older
+    /// readers (serde ignores unknown fields on their end).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<ManagedToolResourceContract>,
+}
+
+/// A bundled auxiliary tool under the managed-resources root. Unlike `node`
+/// and `clis` these are staged by the JS build pipeline after
+/// `prepare-managed-resources` ran, and are resolved opportunistically at
+/// runtime — a missing entry only disables that tool's PATH injection.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ManagedToolResourceContract {
+    /// Stable tool name: "python" | "git" | "officecli" | …
+    pub name: String,
+    pub version: String,
+    /// Relative to the managed-resources root, e.g. `python/python-3.12.10-win-x64`.
+    pub root: String,
+    /// Executables expected under `root` (POSIX-style relative paths). Validated
+    /// when present so a truncated staging is caught at build time.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub executables: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -96,9 +120,13 @@ pub fn validate_contract(
     validate_schema(contract)?;
     validate_node_schema(&contract.node)?;
     validate_clis_schema(contract)?;
+    validate_tools_schema(contract)?;
     validate_node_paths(root, &contract.node)?;
     for cli in &contract.clis {
         validate_cli_paths(root, cli)?;
+    }
+    for tool in &contract.tools {
+        validate_tool_paths(root, tool)?;
     }
     Ok(())
 }
@@ -151,6 +179,29 @@ fn validate_node_schema(node: &ManagedNodeResourceContract) -> Result<(), Manage
     require_non_empty("node.version", &node.version)?;
     validate_contract_relative_path_field("node.root", &node.root)?;
     validate_contract_relative_path_field("node.executable", &node.executable)?;
+    Ok(())
+}
+
+fn validate_tools_schema(contract: &ManagedResourcesContract) -> Result<(), ManagedResourcesContractError> {
+    let mut names = HashSet::new();
+
+    for tool in &contract.tools {
+        require_non_empty("tools[].name", &tool.name)?;
+        if !names.insert(tool.name.as_str()) {
+            return Err(ManagedResourcesContractError::invalid(format!(
+                "duplicate tools name {}",
+                tool.name
+            )));
+        }
+
+        let label = format!("tools[{}]", tool.name);
+        require_non_empty(format!("{label}.version"), &tool.version)?;
+        validate_contract_relative_path_field(format!("{label}.root"), &tool.root)?;
+        for (index, entry) in tool.executables.iter().enumerate() {
+            validate_contract_relative_path_field(format!("{label}.executables[{index}]"), entry)?;
+        }
+    }
+
     Ok(())
 }
 
@@ -209,6 +260,28 @@ fn validate_node_paths(root: &Path, node: &ManagedNodeResourceContract) -> Resul
             executable.display()
         )));
     }
+    Ok(())
+}
+
+fn validate_tool_paths(root: &Path, tool: &ManagedToolResourceContract) -> Result<(), ManagedResourcesContractError> {
+    let tool_root = root.join(&tool.root);
+    if !tool_root.is_dir() {
+        return Err(ManagedResourcesContractError::invalid(format!(
+            "required directory missing: {}",
+            tool_root.display()
+        )));
+    }
+
+    for executable in &tool.executables {
+        let path = tool_root.join(executable);
+        if !path.is_file() {
+            return Err(ManagedResourcesContractError::invalid(format!(
+                "required file missing: {}",
+                path.display()
+            )));
+        }
+    }
+
     Ok(())
 }
 
@@ -314,6 +387,7 @@ mod tests {
                     required_directories: vec!["vendor/x86_64-pc-windows-msvc".into()],
                 },
             ],
+            tools: vec![],
         }
     }
 
@@ -414,5 +488,80 @@ mod tests {
             error.to_string().contains("required file missing")
                 || error.to_string().contains("required directory missing")
         );
+    }
+
+    fn write_node_tree(root: &Path) {
+        let node_root = root.join("node").join("node-v24.11.0-win-x64");
+        std::fs::create_dir_all(&node_root).expect("create node root");
+        std::fs::write(node_root.join("node.exe"), b"").expect("create node executable");
+    }
+
+    #[test]
+    fn tools_entries_validate_paths_when_present() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        write_node_tree(temp.path());
+        let mut contract = example_contract("win32-x64");
+        contract.clis.clear();
+        contract.tools = vec![ManagedToolResourceContract {
+            name: "python".into(),
+            version: "3.12.10".into(),
+            root: "python/python-3.12.10-win-x64".into(),
+            executables: vec!["python.exe".into()],
+        }];
+
+        // Directory + executable missing → rejected.
+        let error = validate_contract(temp.path(), &contract).expect_err("missing tool tree should fail");
+        assert!(error.to_string().contains("required directory missing"), "{error}");
+
+        // Tree present → accepted.
+        let python_root = temp.path().join("python").join("python-3.12.10-win-x64");
+        std::fs::create_dir_all(&python_root).expect("create python root");
+        std::fs::write(python_root.join("python.exe"), b"").expect("create python exe");
+        validate_contract(temp.path(), &contract).expect("tool entry with intact tree is valid");
+    }
+
+    #[test]
+    fn tools_entries_reject_duplicates_and_missing_fields() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        write_node_tree(temp.path());
+        let mut contract = example_contract("win32-x64");
+        contract.clis.clear();
+        contract.tools = vec![
+            ManagedToolResourceContract {
+                name: "git".into(),
+                version: "2.50.0".into(),
+                root: "git/mingit-2.50.0-win-x64".into(),
+                executables: vec![],
+            },
+            ManagedToolResourceContract {
+                name: "git".into(),
+                version: "2.50.0".into(),
+                root: "git/mingit-2.50.0-win-x64".into(),
+                executables: vec![],
+            },
+        ];
+
+        let error = validate_contract(temp.path(), &contract).expect_err("duplicate tool names should fail");
+        assert!(error.to_string().contains("duplicate tools name git"), "{error}");
+
+        contract.tools.truncate(1);
+        contract.tools[0].version = String::new();
+        let error = validate_contract(temp.path(), &contract).expect_err("versionless tool should fail");
+        assert!(error.to_string().contains("tools[git].version"), "{error}");
+    }
+
+    /// Older bundles have no `tools` field at all — deserialization must
+    /// default it to an empty list, not fail.
+    #[test]
+    fn contract_without_tools_field_parses_to_empty_list() {
+        let json = r#"{
+            "schemaVersion": 2,
+            "runtimeKey": "win32-x64",
+            "node": {"version": "24.11.0", "root": "node/node-v24.11.0-win-x64", "executable": "node.exe"},
+            "clis": []
+        }"#;
+
+        let contract: ManagedResourcesContract = serde_json::from_str(json).expect("v2 contract without tools parses");
+        assert!(contract.tools.is_empty());
     }
 }

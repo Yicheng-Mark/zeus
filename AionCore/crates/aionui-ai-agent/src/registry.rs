@@ -1662,6 +1662,9 @@ fn probe_command_candidate(command: &str) -> Option<PathBuf> {
         RuntimeCommandProbe::NodeTool { command, .. } => probe_node_runtime_supported()
             .is_supported()
             .then(|| PathBuf::from(command)),
+        RuntimeCommandProbe::PythonTool { command, .. } => {
+            aionui_runtime::bundled_python_exe().or_else(|| resolve_command_path(&command))
+        }
     }
 }
 

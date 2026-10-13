@@ -520,21 +520,10 @@ function prepareAioncore(options) {
     console.log(`  Downloaded from GitHub Actions artifact`);
   }
 
-  // 2. Download from GitHub releases.
-  if (!sourcePath && tag) {
-    try {
-      const result = downloadAndExtract(platform, arch, tag);
-      sourcePath = result.binaryPath;
-      tempDir = result.tempDir;
-      sourceType = 'download';
-      sourceDetail = { url: result.url };
-      console.log(`  Downloaded from GitHub releases`);
-    } catch (error) {
-      console.warn(`  Download failed: ${error.message}`);
-    }
-  }
-
-  // 3. Use an explicitly supplied local cache when network download is unavailable.
+  // 2. An explicitly supplied local binary outranks downloads: setting
+  // AIONUI_BACKEND_LOCAL_BINARY is a deliberate "build from my local backend"
+  // intent (local Rust changes are exactly why it is set), so a release
+  // download silently shadowing it would package the wrong code.
   if (!sourcePath) {
     const localBinary = (process.env.AIONUI_BACKEND_LOCAL_BINARY || '').trim();
     if (localBinary) {
@@ -547,6 +536,20 @@ function prepareAioncore(options) {
       } else {
         console.warn(`  Local aioncore binary not found: ${resolvedLocalBinary}`);
       }
+    }
+  }
+
+  // 3. Download from GitHub releases.
+  if (!sourcePath && tag) {
+    try {
+      const result = downloadAndExtract(platform, arch, tag);
+      sourcePath = result.binaryPath;
+      tempDir = result.tempDir;
+      sourceType = 'download';
+      sourceDetail = { url: result.url };
+      console.log(`  Downloaded from GitHub releases`);
+    } catch (error) {
+      console.warn(`  Download failed: ${error.message}`);
     }
   }
 

@@ -481,7 +481,7 @@ fn command_not_found_message(command: &str) -> String {
             "Command not found: {command}. Install uv, then restart AionUI or configure this MCP server to use an absolute command path."
         ),
         "python" => format!(
-            "Command not found: {command}. Install Python, then restart AionUI or configure this MCP server to use an absolute command path."
+            "Command not found: {command}. AionCore uses its bundled Python when staged; retry the connection test, check backend logs, install Python on this machine, or configure this MCP server to use an absolute command path."
         ),
         "deno" => format!(
             "Command not found: {command}. Install Deno, then restart AionUI or configure this MCP server to use an absolute command path."
@@ -762,7 +762,11 @@ mod tests {
         let result = spawn_error_result("python3", &err);
         let error = result.error.as_deref().unwrap();
         assert!(error.contains("Command not found: python3"));
-        assert!(error.contains("Install Python"));
+        // The python resolution prefers the bundled managed python, so the
+        // guidance mentions it before suggesting a host install.
+        assert!(error.contains("bundled Python"));
+        assert!(error.contains("install Python"));
+        assert!(error.contains("absolute command path"));
         assert_eq!(result.details.as_ref().unwrap()["runtime"], "python");
     }
 

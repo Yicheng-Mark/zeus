@@ -30,7 +30,11 @@ export interface ElectronBridgeAPI {
   // (opencode.json provider section + claude env override). Fire after provider CRUD.
   syncAgentModelRuntimes?: () => Promise<{
     opencode: { configPath: string; providers: number; error?: string };
-    claude: { providerId: string | null; error?: string };
+    claude: {
+      providerId: string | null;
+      skipped: Array<{ id: string; name: string; reason: string }>;
+      error?: string;
+    };
   }>;
 }
 

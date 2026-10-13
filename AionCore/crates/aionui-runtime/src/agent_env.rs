@@ -22,11 +22,23 @@ static FULL_SHELL_ENV: OnceCell<Vec<(OsString, OsString)>> = OnceCell::const_new
 pub async fn agent_process_env() -> Vec<(OsString, OsString)> {
     let current_env: Vec<(OsString, OsString)> = std::env::vars_os().collect();
     let shell_env = full_shell_env().await.to_vec();
-    let env = build_agent_process_env(current_env.clone(), shell_env.clone());
+    // Bundled managed tools (node runtime, python, git) are prepended to PATH
+    // so engines and their MCP children resolve them on machines with no host
+    // installs. Best-effort only: without a bundle (dev) the env is unchanged.
+    let managed_prefixes = crate::managed_tools::agent_path_prefixes();
+    let python_user_base =
+        crate::managed_tools::python_user_base().filter(|base| std::fs::create_dir_all(base).is_ok());
+    let env = build_agent_process_env(
+        current_env.clone(),
+        shell_env.clone(),
+        &managed_prefixes,
+        python_user_base,
+    );
     tracing::info!(
         current_var_count = current_env.len(),
         shell_var_count = shell_env.len(),
         final_var_count = env.len(),
+        managed_path_prefix_count = managed_prefixes.len(),
         current_network_env_keys = ?present_network_env_keys(&current_env),
         shell_network_env_keys = ?present_network_env_keys(&shell_env),
         final_network_env_keys = ?present_network_env_keys(&env),
@@ -43,6 +55,8 @@ async fn full_shell_env() -> &'static Vec<(OsString, OsString)> {
 fn build_agent_process_env(
     current_env: Vec<(OsString, OsString)>,
     shell_env: Vec<(OsString, OsString)>,
+    managed_path_prefixes: &[PathBuf],
+    python_user_base: Option<PathBuf>,
 ) -> Vec<(OsString, OsString)> {
     let current_path = get_env_value(&current_env, "PATH").cloned();
     let shell_path = get_env_value(&shell_env, "PATH").cloned();
@@ -51,8 +65,11 @@ fn build_agent_process_env(
     merged.extend(shell_env);
 
     remove_env_key(&mut merged, "PATH");
-    if let Some(path) = merge_path_values(current_path.as_deref(), shell_path.as_deref()) {
+    if let Some(path) = merge_path_values(current_path.as_deref(), shell_path.as_deref(), managed_path_prefixes) {
         merged.insert(OsString::from("PATH"), path);
+    }
+    if let Some(base) = python_user_base {
+        merged.insert(OsString::from("PYTHONUSERBASE"), base.into_os_string());
     }
 
     clean_agent_env(&mut merged);
@@ -105,9 +122,20 @@ fn env_key_starts_with(name: &std::ffi::OsStr, prefix: &str) -> bool {
     name.to_string_lossy().starts_with(prefix)
 }
 
-fn merge_path_values(current: Option<&std::ffi::OsStr>, shell: Option<&std::ffi::OsStr>) -> Option<OsString> {
+fn merge_path_values(
+    current: Option<&std::ffi::OsStr>,
+    shell: Option<&std::ffi::OsStr>,
+    prefixes: &[PathBuf],
+) -> Option<OsString> {
     let mut seen = std::collections::HashSet::<PathBuf>::new();
     let mut parts = Vec::new();
+    // Managed-tool prefixes come first so bundled node/python/git win over any
+    // identically named host command, regardless of what the shell exports.
+    for path in prefixes {
+        if seen.insert(path.clone()) {
+            parts.push(path.clone());
+        }
+    }
     for value in [current, shell].into_iter().flatten() {
         for path in std::env::split_paths(value) {
             if path.as_os_str().is_empty() {
@@ -263,6 +291,59 @@ mod tests {
     use std::path::Path;
 
     const CHILD_MARKER: &str = "AIONUI_RUNTIME_AGENT_ENV_TEST_CHILD";
+
+    #[test]
+    fn managed_path_prefixes_land_in_front_of_merged_path() {
+        let node_bin = PathBuf::from("/opt/zeus/managed/node/bin");
+        let python_bin = PathBuf::from("/opt/zeus/managed/python");
+        let git_bin = PathBuf::from("/opt/zeus/managed/git/cmd");
+
+        let current = vec![
+            (
+                OsString::from("PATH"),
+                OsString::from(if cfg!(windows) {
+                    r"C:\Windows\System32;C:\Windows"
+                } else {
+                    "/usr/bin:/bin"
+                }),
+            ),
+            (OsString::from("AIONUI_CURRENT_ONLY"), OsString::from("1")),
+        ];
+        let shell = vec![(
+            OsString::from("PATH"),
+            OsString::from(if cfg!(windows) { r"C:\Shell\bin" } else { "/shell/bin" }),
+        )];
+
+        let env = build_agent_process_env(
+            current,
+            shell,
+            &[node_bin.clone(), python_bin.clone(), git_bin.clone()],
+            Some(PathBuf::from("/data/python-user")),
+        );
+
+        let find = |key: &str| {
+            env.iter()
+                .find(|(name, _)| name == OsStr::new(key))
+                .map(|(_, value)| value.to_string_lossy().into_owned())
+        };
+        let path = find("PATH").expect("PATH present");
+        let entries: Vec<PathBuf> = std::env::split_paths(&path).collect();
+        assert_eq!(&entries[0], &node_bin, "node bin must be first, got {path}");
+        assert_eq!(&entries[1], &python_bin);
+        assert_eq!(&entries[2], &git_bin);
+        // Host/shell entries survive behind the prefixes.
+        assert!(entries.len() > 3, "host PATH entries should follow, got {path}");
+        assert_eq!(find("AIONUI_CURRENT_ONLY").as_deref(), Some("1"));
+        assert_eq!(find("PYTHONUSERBASE").as_deref(), Some("/data/python-user"));
+    }
+
+    #[test]
+    fn empty_prefixes_keep_env_unchanged_and_no_pythonuserbase() {
+        let current = vec![(OsString::from("PATH"), OsString::from("/usr/bin"))];
+        let env = build_agent_process_env(current, Vec::new(), &[], None);
+        let has_pythonuserbase = env.iter().any(|(name, _)| name == OsStr::new("PYTHONUSERBASE"));
+        assert!(!has_pythonuserbase);
+    }
 
     #[cfg(unix)]
     #[tokio::test]

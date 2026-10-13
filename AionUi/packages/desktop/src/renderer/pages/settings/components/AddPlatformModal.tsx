@@ -11,7 +11,7 @@ import { ipcBridge } from '@/common';
 import { uuid } from '@/common/utils';
 import { isGoogleApisHost } from '@/common/utils/urlValidation';
 import ModalHOC from '@/renderer/utils/ui/ModalHOC';
-import { Form, Input, Message, Select, Switch } from '@arco-design/web-react';
+import { Alert, Form, Input, Message, Select, Switch } from '@arco-design/web-react';
 import { Loading, PreviewOpen, Refresh, Search } from '@icon-park/react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -225,11 +225,17 @@ const AddPlatformModal = ModalHOC<{
 
   const platform = selectedPlatform?.platform ?? 'gemini';
   const agentScopesValue = Form.useWatch('agent_scopes', form);
+  const anthropicBaseUrlValue = Form.useWatch('anthropic_base_url', form);
   // 判断是否为"自定义"选项（没有预设 base_url） / Check if "Custom" option (no preset base_url)
   const isCustom = isCustomOption(platformValue);
   const isBedrock = platform === 'bedrock';
   const isGemini = isGeminiPlatform(platform);
   const isNewApi = isNewApiPlatform(platform);
+  // The claude engine can only run custom platforms through their separate
+  // Anthropic-protocol endpoint; warn at form level so the gap is caught here
+  // instead of as an engine-side "Not logged in" later.
+  const claudeScopeLacksAnthropicUrl =
+    isCustom && !isBedrock && (agentScopesValue ?? []).includes('claude') && !(anthropicBaseUrlValue ?? '').trim();
 
   // new-api 每模型协议选择状态 / new-api per-model protocol selection state
   const [modelProtocol, setModelProtocol] = useState<string>('openai');
@@ -779,6 +785,10 @@ const AddPlatformModal = ModalHOC<{
               value={agentScopesValue}
             />
           </Form.Item>
+
+          {claudeScopeLacksAnthropicUrl && (
+            <Alert type='warning' content={t('settings.claudeScopeNeedsAnthropicUrl')} className='!rounded-8px' />
+          )}
 
           <Form.Item
             label={

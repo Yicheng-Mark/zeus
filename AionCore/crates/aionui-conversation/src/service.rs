@@ -5793,6 +5793,15 @@ fn validate_stdio_command(command: &str) -> Result<(), String> {
                 Err(format!("command '{command}' was not found in PATH"))
             }
         }
+        // Python resolves through the bundled managed python first (see
+        // aionui_runtime::ensure_runtime_command), host PATH second.
+        RuntimeCommandProbe::PythonTool { command } => {
+            if aionui_runtime::bundled_python_exe().is_some() || resolve_command_path(&command).is_some() {
+                Ok(())
+            } else {
+                Err(format!("command '{command}' was not found in PATH"))
+            }
+        }
     }
 }
 

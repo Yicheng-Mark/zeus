@@ -19,9 +19,21 @@ pub enum ResolvedNodeSource {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeCommandProbe {
-    ExplicitPath { path: PathBuf },
-    PathLookup { command: String },
-    NodeTool { tool: NodeTool, command: String },
+    ExplicitPath {
+        path: PathBuf,
+    },
+    PathLookup {
+        command: String,
+    },
+    NodeTool {
+        tool: NodeTool,
+        command: String,
+    },
+    /// `python` / `python3` — resolved from the bundled managed python when
+    /// staged, falling back to the host PATH. Never downloads.
+    PythonTool {
+        command: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
