@@ -12,7 +12,7 @@
 
 ## 是什么
 
-Zeus 基于 [AionUi](https://github.com/iWangJiaxi/AionUi) 二次开发，在一个桌面应用里提供三个相互隔离的 agent 引擎：
+Zeus 基于 [AionUi](https://www.aionui.com) 二次开发，在一个桌面应用里提供三个相互隔离的 agent 引擎：
 
 | 模式 | 引擎 | 面向 |
 |---|---|---|
@@ -64,7 +64,7 @@ AIONUI_HUB_SKIP=1 AIONUI_BACKEND_LOCAL_BUNDLE_DIR=<bundle目录> bun run dist:wi
 
 ## English
 
-Zeus is a Windows desktop app (a fork of [AionUi](https://github.com/iWangJiaxi/AionUi)) bundling three isolated agent engines: **Dev** (Claude Code), **Office** (OpenCode) and **Design** (built-in aionrs engine).
+Zeus is a Windows desktop app (a fork of [AionUi](https://www.aionui.com)) bundling three isolated agent engines: **Dev** (Claude Code), **Office** (OpenCode) and **Design** (built-in aionrs engine).
 
 - Zero-dependency install: Node / Python / Git / OfficeCli are all bundled — no prerequisites, no first-run downloads. Engine runtimes are fully isolated from any global installs.
 - 200+ built-in knowledge-work skills, including docx / xlsx / pptx / pdf document handling.
