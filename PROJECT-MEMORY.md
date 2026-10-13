@@ -15,11 +15,13 @@
 | `AionCore\` | Rust 后端 fork v0.2.2(cargo;已加迁移 044 改内置 agent 名) |
 | `zeus-assets\zeus-icon.{png,ico}` | 用户提供的图标源(黑白耳机动漫插画,所有图标均由此生成) |
 | `AionUi\out\win-unpacked\Zeus.exe` | **运行版**(桌面快捷方式指向这里) |
-| `AionUi\out\Zeus-2.2.2-win-x64.exe` | 安装包(注意:其后端是 GitHub 官方版,见"坑") |
+| `AionUi\out\Zeus-2.2.2-win-x64.exe` | 安装包 = **v2.2.2 公开 Release 产物**(2026-10-13 21:59 构建;后端已验证为本地 aioncore——与 `AionCore/target/release/aioncore.exe` sha256 一致,坑 1 已满足;managed-resources 含 node/python/git/officecli/mcp,干净机器零依赖) |
 
 隔离运行时(与代码无关,勿删):`%LOCALAPPDATA%\AionUiAgent\`(runtime\ 两个 exe + agents\ 隔离配置/插件);应用数据:`%APPDATA%\Zeus\`。
 
 ## 代码改动清单(AionUi)
+
+- **首个公开发布 v2.2.2(2026-10-13 晚,第六轮+发布)**:收尾提交 `769ed98`——运行时 bundled 工具解析(`managed_tools.rs`:python/git/officecli 从 managed-resources 解析+PATH 注入,缺了只降级该工具、不挡启动)、构建侧 `prepare-managed-extras.js`(嵌入式 CPython+pip 固定包、MinGit(GPLv2,源码要约随包)、OfficeCli、vendored chrome-devtools-mcp 暂存进 bundled-aioncore 的 managed-resources——干净机器零依赖零首启下载)、设置 UX(EditModeModal 编辑平台可补/清 Anthropic 协议端点、Dev 引擎无可用平台时给出具体缺因文案,i18n ×13)。发布:根 README+LICENSE(Apache-2.0,上游链接用 aionui.com,别写 iWangJiaxi 猜测地址)、tag `v2.2.2`→769ed98、仓库转 PUBLIC(github.com/Yicheng-Mark/zeus)、Release 挂 `Zeus-2.2.2-win-x64.exe`(498MB)+`latest.yml`:https://github.com/Yicheng-Mark/zeus/releases/tag/v2.2.2 。exe 未签名,用户首跑需过 SmartScreen。
 
 - **四需求落地(2026-10-13 第五轮,双端)**:用户提的 4 项产品改动一次做完,全部带测试:
 
