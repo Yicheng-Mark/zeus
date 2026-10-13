@@ -264,7 +264,7 @@
   "aioncoreVersion": "v0.2.2",
   "aionuiEngines": {
     "claudeSdk": "0.3.296",
-    "opencode": "v1.18.35"
+    "opencode": "v1.19.0"
   },
   "electronRebuild": {
     "electronVersion": "^37.3.1"
