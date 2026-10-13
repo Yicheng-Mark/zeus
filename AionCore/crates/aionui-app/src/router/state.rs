@@ -667,12 +667,12 @@ pub fn build_mcp_state(services: &AppServices) -> McpRouterState {
     let repo: Arc<dyn aionui_db::IMcpServerRepository> = Arc::new(aionui_db::SqliteMcpServerRepository::new(pool));
 
     let adapters: Vec<Arc<dyn McpAgentAdapter>> = vec![
-        Arc::new(ClaudeAdapter),
+        Arc::new(ClaudeAdapter::new()),
         Arc::new(GeminiAdapter),
         Arc::new(QwenAdapter),
         Arc::new(CodexAdapter),
         Arc::new(CodeBuddyAdapter),
-        Arc::new(OpencodeAdapter),
+        Arc::new(OpencodeAdapter::new()),
         Arc::new(AionrsAdapter),
         Arc::new(AionuiAdapter::new(repo.clone())),
     ];

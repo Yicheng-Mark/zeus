@@ -3,14 +3,15 @@ use std::path::PathBuf;
 
 use aionui_common::McpSource;
 
+use super::engine_isolation::EngineIsolation;
 use crate::adapter::{DetectedServer, McpAgentAdapter};
 use crate::error::McpError;
 use crate::types::McpServerTransport;
 
 /// MCP Agent adapter for Opencode.
 ///
-/// Opencode stores configuration in `~/.config/opencode/opencode.json`.
-/// The `mcp` field is a map of server names to transport configs.
+/// Opencode stores configuration in `opencode.json` inside its config dir;
+/// the `mcp` field is a map of server names to transport configs.
 ///
 /// # Config Format (JSONC)
 ///
@@ -33,10 +34,51 @@ use crate::types::McpServerTransport;
 /// }
 /// ```
 ///
+/// Zeus isolation: the config dir is the app-injected isolated
+/// `OPENCODE_CONFIG_DIR` target, never the user's global
+/// `~/.config/opencode`. Without injection (and outside the
+/// `AIONUI_ALLOW_PATH_AGENT=1` dev escape) the adapter reports "not
+/// installed" rather than touching the host.
+///
 /// Opencode config files may contain JSON comments (JSONC), so we
 /// strip comments before parsing and preserve the original structure
 /// when writing back.
-pub struct OpencodeAdapter;
+pub struct OpencodeAdapter {
+    isolation: EngineIsolation,
+}
+
+impl OpencodeAdapter {
+    pub fn new() -> Self {
+        Self { isolation: EngineIsolation::from_process_env() }
+    }
+
+    /// Test constructor with an explicit isolation set.
+    pub fn with_isolation(isolation: EngineIsolation) -> Self {
+        Self { isolation }
+    }
+
+    /// Config dir for this adapter: the isolated dir when injected, the user
+    /// global dir only behind the dev escape, `None` = not installed.
+    fn config_dir(&self) -> Option<PathBuf> {
+        if let Some(dir) = &self.isolation.opencode_config_dir {
+            return Some(dir.clone());
+        }
+        if aionui_runtime::path_agent_fallback_allowed() {
+            return dirs::config_dir().map(|d| d.join("opencode"));
+        }
+        None
+    }
+
+    fn config_file_path(&self) -> Option<PathBuf> {
+        self.config_dir().map(|d| d.join("opencode.json"))
+    }
+}
+
+impl Default for OpencodeAdapter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 #[async_trait::async_trait]
 impl McpAgentAdapter for OpencodeAdapter {
@@ -45,11 +87,11 @@ impl McpAgentAdapter for OpencodeAdapter {
     }
 
     async fn is_installed(&self) -> Result<bool, McpError> {
-        Ok(config_dir().is_some_and(|d| d.exists()))
+        Ok(self.config_dir().is_some_and(|d| d.exists()))
     }
 
     async fn detect_existing(&self, _user_id: &str) -> Result<Vec<DetectedServer>, McpError> {
-        let path = config_file_path().ok_or_else(|| McpError::AgentNotInstalled("opencode".into()))?;
+        let path = self.config_file_path().ok_or_else(|| McpError::AgentNotInstalled("opencode".into()))?;
 
         if !path.exists() {
             return Ok(Vec::new());
@@ -64,7 +106,7 @@ impl McpAgentAdapter for OpencodeAdapter {
     }
 
     async fn install_server(&self, name: &str, transport: &McpServerTransport) -> Result<(), McpError> {
-        let path = config_file_path().ok_or_else(|| McpError::AgentNotInstalled("opencode".into()))?;
+        let path = self.config_file_path().ok_or_else(|| McpError::AgentNotInstalled("opencode".into()))?;
 
         let mut root = if path.exists() {
             let content = tokio::fs::read_to_string(&path)
@@ -104,7 +146,7 @@ impl McpAgentAdapter for OpencodeAdapter {
     }
 
     async fn remove_server(&self, name: &str) -> Result<(), McpError> {
-        let path = config_file_path().ok_or_else(|| McpError::AgentNotInstalled("opencode".into()))?;
+        let path = self.config_file_path().ok_or_else(|| McpError::AgentNotInstalled("opencode".into()))?;
 
         if !path.exists() {
             return Ok(());
@@ -142,16 +184,6 @@ impl McpAgentAdapter for OpencodeAdapter {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/// Returns `~/.config/opencode/` if HOME is available.
-fn config_dir() -> Option<PathBuf> {
-    dirs::config_dir().map(|d| d.join("opencode"))
-}
-
-/// Returns `~/.config/opencode/opencode.json` if HOME is available.
-fn config_file_path() -> Option<PathBuf> {
-    config_dir().map(|d| d.join("opencode.json"))
-}
 
 /// Strip single-line (`//`) and multi-line (`/* ... */`) JSON comments.
 ///
@@ -348,7 +380,7 @@ mod tests {
 
     #[test]
     fn source_is_opencode() {
-        assert_eq!(OpencodeAdapter.source(), McpSource::OpenCode);
+        assert_eq!(OpencodeAdapter::new().source(), McpSource::OpenCode);
     }
 
     // -- strip_json_comments --------------------------------------------------
@@ -631,7 +663,51 @@ mod tests {
 
     #[test]
     fn trait_is_object_safe() {
-        let adapter: Box<dyn McpAgentAdapter> = Box::new(OpencodeAdapter);
+        let adapter: Box<dyn McpAgentAdapter> = Box::new(OpencodeAdapter::new());
         assert_eq!(adapter.source(), McpSource::OpenCode);
+    }
+
+    // -- isolated config dir (Zeus isolation) ----------------------------------
+
+    #[tokio::test]
+    async fn isolated_roundtrip_stays_inside_injected_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let adapter = OpencodeAdapter::with_isolation(EngineIsolation {
+            opencode_config_dir: Some(tmp.path().to_path_buf()),
+            ..Default::default()
+        });
+
+        assert!(adapter.is_installed().await.unwrap(), "isolated dir exists (tempdir)");
+        assert!(adapter.detect_existing("u1").await.unwrap().is_empty());
+
+        adapter
+            .install_server(
+                "srv",
+                &McpServerTransport::Stdio { command: "npx".into(), args: vec![], env: HashMap::new() },
+            )
+            .await
+            .unwrap();
+        assert!(tmp.path().join("opencode.json").exists(), "write landed inside the isolated dir");
+
+        let detected = adapter.detect_existing("u1").await.unwrap();
+        assert_eq!(detected.len(), 1);
+        assert_eq!(detected[0].name, "srv");
+
+        adapter.remove_server("srv").await.unwrap();
+        assert!(adapter.detect_existing("u1").await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn without_injection_the_host_global_config_is_untouchable() {
+        // No injected isolation and no dev escape (AIONUI_ALLOW_PATH_AGENT is
+        // unset in tests): the adapter must report "not installed" instead of
+        // reading or writing the user's global opencode config.
+        if aionui_runtime::path_agent_fallback_allowed() {
+            return; // developer machine running tests with the escape set
+        }
+        let adapter = OpencodeAdapter::with_isolation(EngineIsolation::default());
+        assert!(!adapter.is_installed().await.unwrap());
+        let err = adapter.detect_existing("u1").await.unwrap_err();
+        assert!(matches!(err, McpError::AgentNotInstalled(_)), "got {err:?}");
     }
 }

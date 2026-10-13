@@ -226,12 +226,12 @@ mod opencode {
 
     #[test]
     fn source_is_opencode() {
-        assert_eq!(OpencodeAdapter.source(), McpSource::OpenCode);
+        assert_eq!(OpencodeAdapter::new().source(), McpSource::OpenCode);
     }
 
     #[test]
     fn trait_object_safety() {
-        let adapter: Box<dyn McpAgentAdapter> = Box::new(OpencodeAdapter);
+        let adapter: Box<dyn McpAgentAdapter> = Box::new(OpencodeAdapter::new());
         assert_eq!(adapter.source(), McpSource::OpenCode);
     }
 }

@@ -1,14 +1,15 @@
 use std::collections::HashMap;
+use std::path::Path;
 
 use aionui_common::McpSource;
 
+use super::cli_helpers::{
+    DETECT_TIMEOUT, MUTATE_TIMEOUT, is_cli_installed, normalize_detection_status, run_cli_with_env, strip_ansi,
+};
+use super::engine_isolation::EngineIsolation;
 use crate::adapter::{DetectedServer, McpAgentAdapter};
 use crate::error::McpError;
 use crate::types::McpServerTransport;
-
-use super::cli_helpers::{
-    DETECT_TIMEOUT, MUTATE_TIMEOUT, is_cli_installed, normalize_detection_status, run_cli, strip_ansi,
-};
 
 const CLI_NAME: &str = "claude";
 
@@ -26,7 +27,67 @@ const REMOVE_SCOPES: &[&str] = &["user", "local", "project"];
 ///
 /// Claude's list output uses a custom format:
 /// `name: command args - ✓ Connected` or `name: command args - ✗ Failed`
-pub struct ClaudeAdapter;
+///
+/// Zeus isolation: every command runs the app-managed claude.exe (injected by
+/// the desktop bootstrap) with `CLAUDE_CONFIG_DIR` pointed at the isolated
+/// config tree, so `user`-scope writes land in the app's own config and the
+/// user's global `~/.claude` is never read or written. The bare PATH name is
+/// only reachable behind the `AIONUI_ALLOW_PATH_AGENT=1` dev escape; without
+/// either, the adapter reports "not installed".
+pub struct ClaudeAdapter {
+    isolation: EngineIsolation,
+}
+
+impl ClaudeAdapter {
+    pub fn new() -> Self {
+        Self { isolation: EngineIsolation::from_process_env() }
+    }
+
+    /// Test constructor with an explicit isolation set.
+    pub fn with_isolation(isolation: EngineIsolation) -> Self {
+        Self { isolation }
+    }
+
+    /// Program to run: the app-managed exe when injected, the bare name only
+    /// behind the dev escape, `None` = not installed.
+    fn cli_program(&self) -> Option<String> {
+        if let Some(exe) = &self.isolation.claude_exe {
+            return Some(exe.to_string_lossy().into_owned());
+        }
+        if aionui_runtime::path_agent_fallback_allowed() {
+            return Some(CLI_NAME.to_owned());
+        }
+        None
+    }
+
+    /// Spawn env mirroring the session spawn's isolation baseline: config
+    /// redirect plus no self-update / telemetry. Empty in the dev-escape case
+    /// (bare name keeps the host environment, legacy behavior).
+    fn cli_env(&self) -> Vec<(String, String)> {
+        self.isolation
+            .claude_config_dir
+            .as_ref()
+            .map(|dir| {
+                vec![
+                    ("CLAUDE_CONFIG_DIR".to_owned(), dir.to_string_lossy().into_owned()),
+                    ("DISABLE_AUTOUPDATER".to_owned(), "1".to_owned()),
+                    ("DISABLE_TELEMETRY".to_owned(), "1".to_owned()),
+                ]
+            })
+            .unwrap_or_default()
+    }
+
+    fn require_program(&self) -> Result<(String, Vec<(String, String)>), McpError> {
+        let program = self.cli_program().ok_or_else(|| McpError::AgentNotInstalled(CLI_NAME.into()))?;
+        Ok((program, self.cli_env()))
+    }
+}
+
+impl Default for ClaudeAdapter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 #[async_trait::async_trait]
 impl McpAgentAdapter for ClaudeAdapter {
@@ -35,40 +96,50 @@ impl McpAgentAdapter for ClaudeAdapter {
     }
 
     async fn is_installed(&self) -> Result<bool, McpError> {
+        let Some(program) = self.cli_program() else {
+            return Ok(false);
+        };
+        let path = Path::new(&program);
+        if path.is_absolute() {
+            return Ok(path.is_file());
+        }
         is_cli_installed(CLI_NAME).await
     }
 
     async fn detect_existing(&self, _user_id: &str) -> Result<Vec<DetectedServer>, McpError> {
+        let (program, env) = self.require_program()?;
         if !self.is_installed().await? {
             return Err(McpError::AgentNotInstalled(CLI_NAME.into()));
         }
 
-        let (stdout, _stderr) = run_cli(CLI_NAME, &["mcp", "list"], DETECT_TIMEOUT).await?;
+        let (stdout, _stderr) = run_cli_with_env(&program, &["mcp", "list"], &env, DETECT_TIMEOUT).await?;
         Ok(parse_claude_list_output(&stdout))
     }
 
     async fn install_server(&self, name: &str, transport: &McpServerTransport) -> Result<(), McpError> {
+        let (program, env) = self.require_program()?;
         if !self.is_installed().await? {
             return Err(McpError::AgentNotInstalled(CLI_NAME.into()));
         }
 
         match transport {
-            McpServerTransport::Stdio { command, args, env } => {
-                let config = build_stdio_json(command, args, env);
+            McpServerTransport::Stdio { command, args, env: transport_env } => {
+                let config = build_stdio_json(command, args, transport_env);
                 let config_str =
                     serde_json::to_string(&config).map_err(|e| McpError::AgentOperationFailed(e.to_string()))?;
-                run_cli(
-                    CLI_NAME,
+                run_cli_with_env(
+                    &program,
                     &["mcp", "add-json", "-s", "user", name, &config_str],
+                    &env,
                     MUTATE_TIMEOUT,
                 )
                 .await?;
             }
             McpServerTransport::Sse { url, headers } => {
-                install_http_like(name, "sse", url, headers).await?;
+                self.install_http_like(&program, &env, name, "sse", url, headers).await?;
             }
             McpServerTransport::Http { url, headers } => {
-                install_http_like(name, "http", url, headers).await?;
+                self.install_http_like(&program, &env, name, "http", url, headers).await?;
             }
         }
 
@@ -76,13 +147,15 @@ impl McpAgentAdapter for ClaudeAdapter {
     }
 
     async fn remove_server(&self, name: &str) -> Result<(), McpError> {
+        let (program, env) = self.require_program()?;
         if !self.is_installed().await? {
             return Err(McpError::AgentNotInstalled(CLI_NAME.into()));
         }
 
         // Try each scope; stop on first success or "not found".
         for scope in REMOVE_SCOPES {
-            let (stdout, _stderr) = run_cli(CLI_NAME, &["mcp", "remove", "-s", scope, name], MUTATE_TIMEOUT).await?;
+            let (stdout, _stderr) =
+                run_cli_with_env(&program, &["mcp", "remove", "-s", scope, name], &env, MUTATE_TIMEOUT).await?;
             let lower = stdout.to_lowercase();
             if lower.contains("removed") || lower.contains("not found") {
                 return Ok(());
@@ -95,32 +168,37 @@ impl McpAgentAdapter for ClaudeAdapter {
     }
 }
 
-/// Install an HTTP-like (sse/http) server via `claude mcp add`.
-async fn install_http_like(
-    name: &str,
-    transport_type: &str,
-    url: &str,
-    headers: &HashMap<String, String>,
-) -> Result<(), McpError> {
-    let mut args = vec![
-        "mcp".to_owned(),
-        "add".to_owned(),
-        "-s".to_owned(),
-        "user".to_owned(),
-        "--transport".to_owned(),
-        transport_type.to_owned(),
-        name.to_owned(),
-        url.to_owned(),
-    ];
+impl ClaudeAdapter {
+    /// Install an HTTP-like (sse/http) server via `claude mcp add`.
+    async fn install_http_like(
+        &self,
+        program: &str,
+        env: &[(String, String)],
+        name: &str,
+        transport_type: &str,
+        url: &str,
+        headers: &HashMap<String, String>,
+    ) -> Result<(), McpError> {
+        let mut args = vec![
+            "mcp".to_owned(),
+            "add".to_owned(),
+            "-s".to_owned(),
+            "user".to_owned(),
+            "--transport".to_owned(),
+            transport_type.to_owned(),
+            name.to_owned(),
+            url.to_owned(),
+        ];
 
-    for (key, value) in headers {
-        args.push("--header".to_owned());
-        args.push(format!("{key}: {value}"));
+        for (key, value) in headers {
+            args.push("--header".to_owned());
+            args.push(format!("{key}: {value}"));
+        }
+
+        let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        run_cli_with_env(program, &arg_refs, env, MUTATE_TIMEOUT).await?;
+        Ok(())
     }
-
-    let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-    run_cli(CLI_NAME, &arg_refs, MUTATE_TIMEOUT).await?;
-    Ok(())
 }
 
 /// Build the JSON config for `claude mcp add-json`.
@@ -344,5 +422,35 @@ web: https://example.com/api - ✓ Connected";
         let json = build_stdio_json("node", &[], &env);
         assert_eq!(json["command"], "node");
         assert_eq!(json["env"]["KEY"], "VALUE");
+    }
+
+    // -- Zeus isolation -------------------------------------------------------
+
+    #[tokio::test]
+    async fn without_injection_claude_adapter_reports_not_installed() {
+        if aionui_runtime::path_agent_fallback_allowed() {
+            return; // developer machine running tests with the escape set
+        }
+        let adapter = ClaudeAdapter::with_isolation(Default::default());
+        assert!(!adapter.is_installed().await.unwrap());
+        assert!(matches!(
+            adapter.detect_existing("u1").await.unwrap_err(),
+            McpError::AgentNotInstalled(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn injected_exe_path_drives_availability() {
+        let missing = ClaudeAdapter::with_isolation(EngineIsolation {
+            claude_exe: Some(std::path::PathBuf::from("Z:/definitely/not/claude.exe")),
+            ..Default::default()
+        });
+        assert!(!missing.is_installed().await.unwrap());
+
+        let real = ClaudeAdapter::with_isolation(EngineIsolation {
+            claude_exe: Some(std::env::current_exe().unwrap()),
+            ..Default::default()
+        });
+        assert!(real.is_installed().await.unwrap());
     }
 }

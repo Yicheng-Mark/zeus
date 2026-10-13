@@ -29,8 +29,22 @@ pub async fn is_cli_installed(name: &str) -> Result<bool, McpError> {
 /// Returns `(stdout, stderr)` on success. Returns an error if the command
 /// fails to start, times out, or exits with a non-zero status.
 pub async fn run_cli(program: &str, args: &[&str], timeout: Duration) -> Result<(String, String), McpError> {
+    run_cli_with_env(program, args, &[], timeout).await
+}
+
+/// [`run_cli`] with extra env entries layered on top of the clean CLI
+/// environment. The claude adapter passes its isolation redirects
+/// (`CLAUDE_CONFIG_DIR`, `DISABLE_*`) here so the CLI runs against the
+/// app-managed config tree exactly like a session spawn would.
+pub async fn run_cli_with_env(
+    program: &str,
+    args: &[&str],
+    env: &[(String, String)],
+    timeout: Duration,
+) -> Result<(String, String), McpError> {
     let mut builder = CmdBuilder::clean_cli(program);
     builder.args(args);
+    builder.envs(env.iter().cloned());
     let result = tokio::time::timeout(timeout, builder.output()).await;
 
     let output = match result {
