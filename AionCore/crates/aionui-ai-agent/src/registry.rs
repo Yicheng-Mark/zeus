@@ -1052,6 +1052,7 @@ fn cached_snapshot_indicates_missing(meta: &AgentMetadata) -> bool {
                 | "primary_missing"
                 | "bridge_missing"
                 | "managed_runtime_unavailable"
+                | "engine_not_ready"
                 | "no_command"
                 | "disabled"
         )
@@ -1086,6 +1087,9 @@ fn cached_unavailable_reason(meta: &AgentMetadata) -> Option<UnavailableReason> 
                 .last_check_error_message
                 .clone()
                 .unwrap_or_else(|| "managed runtime was unavailable during the last health check".to_owned()),
+        }),
+        "engine_not_ready" => Some(UnavailableReason::EngineNotReady {
+            backend: meta.backend.clone().unwrap_or_else(|| "engine".to_owned()),
         }),
         _ => None,
     }
@@ -1333,6 +1337,10 @@ fn diagnostic_details_for_unavailable_reason(reason: &UnavailableReason) -> Opti
             "code": "managed_runtime_unavailable",
             "resource": resource,
         })),
+        UnavailableReason::EngineNotReady { backend } => Some(json!({
+            "code": "engine_not_ready",
+            "backend": backend,
+        })),
     }
 }
 
@@ -1345,6 +1353,7 @@ fn unavailable_reason_code(reason: &UnavailableReason) -> String {
         UnavailableReason::PrimaryUnusable { .. } => "primary_unusable",
         UnavailableReason::CommandMissing { .. } => "command_missing",
         UnavailableReason::ManagedRuntimeUnavailable { .. } => "managed_runtime_unavailable",
+        UnavailableReason::EngineNotReady { .. } => "engine_not_ready",
     }
     .to_owned()
 }
@@ -1369,6 +1378,9 @@ fn guidance_for_unavailable_reason(reason: &UnavailableReason) -> String {
         }
         UnavailableReason::ManagedRuntimeUnavailable { resource, .. } => {
             format!("Repair or reinstall the managed `{resource}` runtime, then run Test Connection again.")
+        }
+        UnavailableReason::EngineNotReady { .. } => {
+            "The app's bundled engine is not set up yet. Restart the app to re-run runtime setup, then run Test Connection again.".to_owned()
         }
     }
 }
@@ -1409,6 +1421,9 @@ pub(crate) fn guidance_for_snapshot_error_code(error_code: &str) -> &'static str
         }
         "version_probe_timeout" => {
             "The CLI loads too slowly for the probe budget. This usually means a very large package on slow disk or antivirus interference — the agent may still work; run Test Connection to verify with a longer budget."
+        }
+        "engine_not_ready" => {
+            "The app's bundled engine is not set up yet. Restart the app to re-run runtime setup, then run Test Connection again."
         }
         _ => "",
     }
@@ -1540,6 +1555,11 @@ pub enum UnavailableReason {
     /// Managed runtime/tool support is unavailable even though the row
     /// itself is builtin and no ambient PATH lookup should be required.
     ManagedRuntimeUnavailable { resource: String, detail: String },
+    /// A builtin engine (claude/opencode) whose isolated runtime binary was
+    /// never provisioned. Resolving it from the user's PATH is forbidden
+    /// (Zeus isolation), so the engine stays unavailable until the runtime
+    /// bootstrap re-runs.
+    EngineNotReady { backend: String },
 }
 
 impl std::fmt::Display for UnavailableReason {
@@ -1555,6 +1575,9 @@ impl std::fmt::Display for UnavailableReason {
             Self::CommandMissing { command } => write!(f, "spawn command `{command}` not on $PATH"),
             Self::ManagedRuntimeUnavailable { resource, detail } => {
                 write!(f, "managed `{resource}` unavailable: {detail}")
+            }
+            Self::EngineNotReady { backend } => {
+                write!(f, "{backend} engine not ready: isolated runtime not provisioned")
             }
         }
     }
@@ -1572,8 +1595,26 @@ impl std::fmt::Display for UnavailableReason {
 /// have `spawn command == primary binary`, so the primary-binary check
 /// is a no-op for them.
 fn probe_resolved_command(meta: &AgentMetadata) -> Result<PathBuf, UnavailableReason> {
+    probe_resolved_command_with_policy(meta, aionui_runtime::path_agent_fallback_allowed())
+}
+
+/// Policy-parameterized core of [`probe_resolved_command`] so tests can
+/// exercise both the isolation gate and the legacy PATH behavior without
+/// mutating process env.
+fn probe_resolved_command_with_policy(
+    meta: &AgentMetadata,
+    fallback_allowed: bool,
+) -> Result<PathBuf, UnavailableReason> {
     if !meta.enabled {
         return Err(UnavailableReason::Disabled);
+    }
+
+    // Zeus isolation: a builtin engine whose isolated runtime was never
+    // provisioned is "not ready", not "installed via the user's PATH" — the
+    // PATH probe below would mark the user's own global install as this
+    // agent's resolved command. Dev opt-out: AIONUI_ALLOW_PATH_AGENT=1.
+    if let Some(backend) = crate::cli_probe::builtin_engine_gated(meta, fallback_allowed) {
+        return Err(UnavailableReason::EngineNotReady { backend: backend.to_owned() });
     }
 
     // Builtin claude/codex run as direct CLIs now: availability is a PATH-only

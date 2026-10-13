@@ -71,9 +71,10 @@ async fn probe_resolved_command_keeps_bridge_but_version_probe_targets_primary_c
     ));
 }
 
-#[test]
-fn probe_resolved_command_requires_primary_binary_for_builtin_managed_claude() {
-    let meta = AgentMetadata {
+/// Shared fixture for the builtin-claude probe tests: a builtin claude row
+/// whose primary binary is deliberately not on PATH.
+fn builtin_claude_probe_meta() -> AgentMetadata {
+    AgentMetadata {
         id: "agent-claude".into(),
         icon: None,
         name: "Claude Code".into(),
@@ -112,13 +113,42 @@ fn probe_resolved_command_requires_primary_binary_for_builtin_managed_claude() {
         handshake: AgentHandshake::default(),
         has_command_override: false,
         env_override_key_count: 0,
-    };
+    }
+}
 
-    let reason = probe_resolved_command(&meta).expect_err("missing claude CLI must hide builtin row");
+#[test]
+fn probe_resolved_command_requires_primary_binary_for_builtin_managed_claude() {
+    let meta = builtin_claude_probe_meta();
+    let reason = probe_resolved_command_with_policy(&meta, true)
+        .expect_err("missing claude CLI must hide builtin row (dev PATH fallback allowed)");
     assert!(matches!(
         reason,
         UnavailableReason::PrimaryMissing { binary } if binary == "definitely-missing-claude-cli"
     ));
+}
+
+/// Zeus isolation: with the dev PATH fallback closed (production default), a
+/// builtin engine without a command_override reports "engine not ready"
+/// instead of probing the user's PATH.
+#[test]
+fn probe_resolved_command_gates_builtin_claude_without_override() {
+    let meta = builtin_claude_probe_meta();
+    let reason = probe_resolved_command_with_policy(&meta, false)
+        .expect_err("builtin claude without override must not resolve from PATH");
+    assert!(matches!(reason, UnavailableReason::EngineNotReady { backend } if backend == "claude"));
+
+    // A provisioned engine (override applied by the isolated runtime
+    // bootstrap) is never gated — the probe targets the override path, and a
+    // missing target is an ordinary PATH miss.
+    let mut provisioned = builtin_claude_probe_meta();
+    provisioned.has_command_override = true;
+    provisioned.command = Some("C:/isolated/runtime/claude/claude.exe".into());
+    let reason = probe_resolved_command_with_policy(&provisioned, false)
+        .expect_err("missing override target is a PATH miss, not the gate");
+    assert!(
+        matches!(reason, UnavailableReason::PrimaryMissing { .. } | UnavailableReason::CommandMissing { .. }),
+        "got {reason:?}"
+    );
 }
 
 #[test]

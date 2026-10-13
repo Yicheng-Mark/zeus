@@ -203,7 +203,22 @@ async fn run_probe(
     // has nothing extra to say.
     let mut guidance: Option<String> = None;
 
-    let (status, error_code, error_message) = if meta.agent_source == AgentSource::Builtin
+    let (status, error_code, error_message) = if let Some(backend) =
+        crate::cli_probe::builtin_engine_gated(meta, aionui_runtime::path_agent_fallback_allowed())
+    {
+        // Zeus isolation: a builtin engine whose isolated runtime never got
+        // provisioned reports "engine not ready" instead of probing — both
+        // probe branches below would resolve the bare name through the user's
+        // PATH and actually run the user's own global install.
+        (
+            AgentSnapshotCheckStatus::Offline,
+            Some("engine_not_ready".to_owned()),
+            Some(format!(
+                "{backend} engine not ready: the isolated runtime binary is not configured; \
+                 restart the app to re-run runtime setup"
+            )),
+        )
+    } else if meta.agent_source == AgentSource::Builtin
         && matches!(
             meta.backend.as_deref(),
             Some("claude") | Some("codex") | Some("antigravity")
@@ -629,7 +644,10 @@ mod tests {
             name_i18n: None,
             description: None,
             description_i18n: None,
-            backend: Some("claude".into()),
+            // codex exercises the same managed-builtin probe branch as claude
+            // but is not behind the Zeus isolation gate, so this test keeps
+            // targeting the primary-binary check itself.
+            backend: Some("codex".into()),
             agent_type: AgentType::Acp,
             agent_source: AgentSource::Builtin,
             agent_source_info: AgentSourceInfo {
@@ -833,7 +851,9 @@ mod tests {
                 name_i18n: None,
                 description: None,
                 description_i18n: None,
-                backend: Some("claude"),
+                // codex: same PATH-probe semantics as claude without the Zeus
+                // isolation gate, keeping this test about probe persistence.
+                backend: Some("codex"),
                 agent_type: "acp",
                 agent_source: "builtin",
                 agent_source_info: Some(source_info),

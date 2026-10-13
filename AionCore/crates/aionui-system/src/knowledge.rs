@@ -30,7 +30,6 @@ pub struct KnowledgeService {
 #[derive(Debug, Clone, sqlx::FromRow)]
 struct NoteRow {
     id: String,
-    user_id: String,
     title: String,
     file_name: String,
     content: String,

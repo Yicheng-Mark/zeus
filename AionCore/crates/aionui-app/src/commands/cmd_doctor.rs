@@ -147,6 +147,9 @@ fn describe_reason(reason: &UnavailableReason) -> String {
         UnavailableReason::ManagedRuntimeUnavailable { resource, detail } => {
             format!("managed `{resource}` unavailable: {detail}")
         }
+        UnavailableReason::EngineNotReady { backend } => {
+            format!("{backend} engine not ready: isolated runtime not provisioned (restart the app)")
+        }
     }
 }
 

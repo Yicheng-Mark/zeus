@@ -1934,22 +1934,38 @@ pub async fn build_session_instance(
         resume: matches!(spec, SessionSpec::Resume { .. }),
     };
 
+    let cli_program = resolve_session_cli_program(backend_label, metadata);
+    // Zeus isolation: `None` means the isolated runtime binary never got
+    // provisioned (runtime bootstrap deferred) AND the dev PATH fallback is
+    // closed. Fail the session loudly instead of keeping the bare name — the
+    // OS resolves a bare `claude` straight back to the user's own global
+    // install, running it with the host environment. Dev/test opt-out:
+    // AIONUI_ALLOW_PATH_AGENT=1.
+    if backend_label == "claude"
+        && cli_program.is_none()
+        && !aionui_runtime::path_agent_fallback_allowed()
+    {
+        return Err(AgentError::bad_request(
+            "claude engine not ready: the isolated runtime binary is not configured. \
+             Restart the app to re-run runtime setup (developers: AIONUI_ALLOW_PATH_AGENT=1)",
+        ));
+    }
+
     let mut session_config = SessionConfig {
         cwd: Some(workspace.clone()),
         model,
         mode,
         init,
-        // A user-selected launch path wins so the process uses the same binary
-        // that the registry health check accepted. Otherwise the packaged app
-        // resolves the bundled claude/codex binary and forwards its absolute
-        // path. Bundled-missing / dev falls back to a PATH lookup via
-        // `resolve_command_path` (NOT the bare name): on Windows, npm installs
-        // ship `claude.cmd`/`codex.cmd` shims which `CreateProcess` does not
-        // find from a bare name (#299 parity; Rust std runs `.cmd` via
-        // `cmd.exe` since the BatBadBut fix). `None` (nothing on PATH either)
-        // keeps the bare name so the spawn error stays diagnosable. Detection
-        // (cli_probe) stays PATH-only and is unaffected.
-        cli_program: resolve_session_cli_program(backend_label, metadata),
+        // A command override (the isolated runtime bootstrap pins the
+        // app-managed binary here) wins and is forwarded as an absolute path,
+        // so the session uses the same binary the registry health check
+        // accepted. Without an override, dev-only PATH resolution happened in
+        // `resolve_session_cli_program`; with the gate closed (production) the
+        // claude branch above already failed the session, so `None` survives
+        // only for non-gated backends and keeps the bare name so the spawn
+        // error stays diagnosable. Detection (cli_probe) stays PATH-only and
+        // is unaffected.
+        cli_program,
         // Layer 1 (argv). `--plugin-dir <view>` plus one `--add-dir <source>` per
         // enabled skill, already substituted by the delivery plan. Empty for a
         // non-argv vendor or an empty snapshot.
@@ -2170,13 +2186,23 @@ fn resolve_session_cli_program(
         });
     }
 
-    // PATH only. claude/codex used to prefer a bundled, version-pinned copy,
-    // which silently diverged from whatever the user had installed: the same
-    // prompt behaved differently in AionUi and in the user's terminal, with
-    // nothing on screen explaining why. They are now treated exactly like agy —
-    // the user's own install is the one that runs, and a drift from the version
-    // this integration was verified against is reported rather than hidden.
-    aionui_runtime::resolve_command_path(backend_label)
+    // PATH only, and only behind the dev gate. claude/codex used to prefer a
+    // bundled, version-pinned copy, which silently diverged from whatever the
+    // user had installed: the same prompt behaved differently in AionUi and in
+    // the user's terminal, with nothing on screen explaining why. They are now
+    // treated exactly like agy — the user's own install is the one that runs,
+    // and a drift from the version this integration was verified against is
+    // reported rather than hidden.
+    //
+    // Zeus isolation closes that door in production: the builtin engines ship
+    // their own binaries and must never resolve from the user's PATH. `None`
+    // makes the caller fail the session with "engine not ready" (claude) or
+    // keep the bare name so the spawn error stays diagnosable (others).
+    if aionui_runtime::path_agent_fallback_allowed() {
+        aionui_runtime::resolve_command_path(backend_label)
+    } else {
+        None
+    }
 }
 
 /// Assemble the direct-CLI spawn env (legacy spawn-surface parity; order
@@ -4976,7 +5002,7 @@ mod build_mapping_tests {
                     id: "mcp-inline-collision".into(),
                     name: TEAM_MCP_SERVER_NAME.into(),
                     transport: SessionMcpTransport::Stdio {
-                        command: executable,
+                        command: executable.clone(),
                         args: vec!["malicious".into()],
                         env: Default::default(),
                     },
@@ -4997,7 +5023,14 @@ mod build_mapping_tests {
                 direct_mcp_row("mcp-reserved", TEAM_MCP_SERVER_NAME),
             ],
         });
-        let metadata = test_metadata(Some("claude"), None);
+        let mut metadata = test_metadata(Some("claude"), None);
+        // Zeus isolation: builtin claude only spawns through a command
+        // override (the isolated runtime bootstrap pins the app-managed
+        // binary); mirror that production shape so the spawn reaches the
+        // recorder instead of the engine-not-ready gate.
+        metadata.has_command_override = true;
+        metadata.command = Some("claude".into());
+        metadata.resolved_command = Some(std::path::PathBuf::from(&executable));
         let broadcaster: Arc<dyn EventBroadcaster> = Arc::new(aionui_realtime::BroadcastEventBus::new(16));
         let spawner = Arc::new(RecordingFailSpawner::default());
 

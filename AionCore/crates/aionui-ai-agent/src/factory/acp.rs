@@ -356,6 +356,22 @@ async fn resolve_agent_command_spec(
     conversation_id: &str,
     broadcaster: Arc<dyn aionui_realtime::EventBroadcaster>,
 ) -> Result<CommandSpec, AgentError> {
+    // Zeus isolation: the builtin opencode engine must never resolve from the
+    // user's PATH. Without a command_override the seeded bare name `opencode`
+    // would hit the PATH lookup below and silently run the user's own global
+    // install with the host environment. AIONUI_ALLOW_PATH_AGENT=1 restores
+    // the legacy behavior for development and tests.
+    if meta.agent_source == aionui_api_types::AgentSource::Builtin
+        && meta.backend.as_deref() == Some("opencode")
+        && !meta.has_command_override
+        && !aionui_runtime::path_agent_fallback_allowed()
+    {
+        return Err(AgentError::bad_request(format!(
+            "Agent '{}' engine not ready: the isolated opencode runtime is not configured. \
+             Restart the app to re-run runtime setup (developers: AIONUI_ALLOW_PATH_AGENT=1)",
+            meta.name
+        )));
+    }
     let command = meta
         .command
         .as_deref()

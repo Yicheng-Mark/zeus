@@ -717,10 +717,9 @@ impl AssistantService {
         // emptied file) always win.
         if let Some(rule) = crate::zeus_mode_presets::mode_preset_rule(row.backend.as_deref(), row.agent_type)
             && self.read_user_rule_with_fallback(user_id, &assistant_id, None).is_empty()
+            && let Err(error) = self.write_rule_for_user(user_id, &assistant_id, None, rule).await
         {
-            if let Err(error) = self.write_rule_for_user(user_id, &assistant_id, None, rule).await {
-                warn!(agent_id = %row.id, %error, "skip seeding mode rule for generated assistant");
-            }
+            warn!(agent_id = %row.id, %error, "skip seeding mode rule for generated assistant");
         }
 
         if !is_missing {

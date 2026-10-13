@@ -37,6 +37,12 @@ pub(crate) enum ProbeFailure {
     SkipLookup { detail: String },
     VersionFailed { detail: String, duration_ms: u64 },
     VersionTimeout { budget_ms: u64 },
+    /// A builtin engine (claude/opencode) whose isolated runtime binary never
+    /// got provisioned. Probing would resolve the bare name through the
+    /// user's PATH and actually run the user's own global install, so the
+    /// probe refuses instead (`AIONUI_ALLOW_PATH_AGENT=1` re-enables the
+    /// legacy PATH resolution for dev/test).
+    EngineNotReady { backend: String },
 }
 
 impl ProbeFailure {
@@ -46,6 +52,7 @@ impl ProbeFailure {
             Self::SkipLookup { .. } => "package_lock_invalid",
             Self::VersionFailed { .. } => "version_probe_failed",
             Self::VersionTimeout { .. } => "version_probe_timeout",
+            Self::EngineNotReady { .. } => "engine_not_ready",
         }
     }
 
@@ -64,7 +71,29 @@ impl ProbeFailure {
                     "version_probe_timeout@{budget_ms}ms: `--version` timed out (slow load, not proof of corruption)"
                 )
             }
+            Self::EngineNotReady { backend } => format!(
+                "{backend} engine not ready: the isolated runtime binary is not configured; \
+                 restart the app to re-run runtime setup (AIONUI_ALLOW_PATH_AGENT=1 for dev)"
+            ),
         }
+    }
+}
+
+/// Zeus isolation gate shared by every PATH-touching surface: `Some(backend)`
+/// when `meta` is a builtin claude/opencode row without a command_override and
+/// the dev fallback is closed — the caller must treat the engine as "not
+/// ready" instead of resolving anything from PATH. `fallback_allowed` comes
+/// from `aionui_runtime::path_agent_fallback_allowed()` (kept as a parameter
+/// so tests stay pure).
+pub(crate) fn builtin_engine_gated(meta: &AgentMetadata, fallback_allowed: bool) -> Option<&str> {
+    if meta.agent_source == aionui_api_types::AgentSource::Builtin
+        && matches!(meta.backend.as_deref(), Some("claude") | Some("opencode"))
+        && !meta.has_command_override
+        && !fallback_allowed
+    {
+        meta.backend.as_deref()
+    } else {
+        None
     }
 }
 
@@ -82,6 +111,9 @@ pub(crate) fn command_name(meta: &AgentMetadata) -> Option<&str> {
 }
 
 pub(crate) async fn validate_with_budget(meta: &AgentMetadata, budget: Duration) -> Result<ProbeSuccess, ProbeFailure> {
+    if let Some(backend) = builtin_engine_gated(meta, aionui_runtime::path_agent_fallback_allowed()) {
+        return Err(ProbeFailure::EngineNotReady { backend: backend.to_owned() });
+    }
     let command = command_name(meta).ok_or(ProbeFailure::NoCommand)?;
     let path = resolve_command_path(command).ok_or_else(|| ProbeFailure::CommandNotFound {
         command: command.to_owned(),
@@ -101,7 +133,15 @@ pub(crate) async fn validate_with_budget(meta: &AgentMetadata, budget: Duration)
             reported_version: None,
         });
     }
-    validate_version_with_timeout(&path, budget).await
+    // The probe runs the CLI as the session would, so it carries the agent's
+    // env overrides (isolation redirects + credential neutralization) instead
+    // of the bare host environment.
+    let env: Vec<(String, String)> = meta
+        .env
+        .iter()
+        .map(|entry| (entry.name.clone(), entry.value.clone()))
+        .collect();
+    validate_version_with_timeout(&path, budget, &env).await
 }
 
 #[cfg(test)]
@@ -109,12 +149,17 @@ async fn resolve_and_validate_command(command: &str) -> Result<PathBuf, ProbeFai
     let path = resolve_command_path(command).ok_or_else(|| ProbeFailure::CommandNotFound {
         command: command.to_owned(),
     })?;
-    validate_version_with_timeout(&path, CLI_VERSION_TIMEOUT).await?;
+    validate_version_with_timeout(&path, CLI_VERSION_TIMEOUT, &[]).await?;
     Ok(path)
 }
 
-async fn validate_version_with_timeout(path: &std::path::Path, budget: Duration) -> Result<ProbeSuccess, ProbeFailure> {
+async fn validate_version_with_timeout(
+    path: &std::path::Path,
+    budget: Duration,
+    env: &[(String, String)],
+) -> Result<ProbeSuccess, ProbeFailure> {
     let mut command = Builder::clean_cli(path);
+    command.envs(env.iter().cloned());
     command.arg("--version");
 
     let started = std::time::Instant::now();
@@ -185,10 +230,26 @@ mod tests {
         // (as the probe used to) would mean a second `--version` launch, or —
         // as shipped — no drift warning at connection-test time at all.
         let (_dir, path) = executable_script("agent-cli", "#!/bin/sh\nprintf '1.1.8\\n'\n");
-        let ok = validate_version_with_timeout(&path, Duration::from_secs(5))
+        let ok = validate_version_with_timeout(&path, Duration::from_secs(5), &[])
             .await
             .unwrap();
         assert_eq!(ok.reported_version.as_deref(), Some("1.1.8"));
+    }
+
+    #[tokio::test]
+    async fn version_probe_carries_the_agent_env() {
+        // The probe must run the CLI the way a session would: with the agent's
+        // env overrides (isolation redirects + credential neutralization), not
+        // the bare host environment.
+        let (_dir, path) = executable_script("agent-cli", "#!/bin/sh\nprintf \"$PROBE_TEST_VAR\\n\"\n");
+        let ok = validate_version_with_timeout(
+            &path,
+            Duration::from_secs(5),
+            &[("PROBE_TEST_VAR".to_owned(), "carried".to_owned())],
+        )
+        .await
+        .unwrap();
+        assert_eq!(ok.reported_version.as_deref(), Some("carried"));
     }
 
     #[tokio::test]
@@ -196,7 +257,7 @@ mod tests {
         // Some CLIs exit 0 without printing. `Some("")` would be read as a
         // parseable version and could produce a bogus drift verdict.
         let (_dir, path) = executable_script("agent-cli", "#!/bin/sh\nexit 0\n");
-        let ok = validate_version_with_timeout(&path, Duration::from_secs(5))
+        let ok = validate_version_with_timeout(&path, Duration::from_secs(5), &[])
             .await
             .unwrap();
         assert_eq!(ok.reported_version, None);
@@ -205,7 +266,7 @@ mod tests {
     #[tokio::test]
     async fn version_probe_success_reports_duration() {
         let (_dir, path) = executable_script("agent-cli", "#!/bin/sh\nprintf 'agent-cli 1.2.3\\n'\n");
-        let ok = validate_version_with_timeout(&path, Duration::from_secs(5))
+        let ok = validate_version_with_timeout(&path, Duration::from_secs(5), &[])
             .await
             .unwrap();
         assert!(ok.version_checked);
@@ -222,7 +283,7 @@ mod tests {
             "agent-cli",
             "#!/bin/sh\nprintf 'native binary missing\\n' >&2\nexit 1\n",
         );
-        let failure = validate_version_with_timeout(&path, Duration::from_secs(5))
+        let failure = validate_version_with_timeout(&path, Duration::from_secs(5), &[])
             .await
             .unwrap_err();
         assert_eq!(failure.error_code(), "version_probe_failed");
@@ -242,11 +303,75 @@ mod tests {
     #[tokio::test]
     async fn version_probe_classifies_timeout_without_condemning() {
         let (_dir, path) = executable_script("agent-cli", "#!/bin/sh\nsleep 10\n");
-        let failure = validate_version_with_timeout(&path, Duration::from_millis(50))
+        let failure = validate_version_with_timeout(&path, Duration::from_millis(50), &[])
             .await
             .unwrap_err();
         assert_eq!(failure, ProbeFailure::VersionTimeout { budget_ms: 50 });
         assert_eq!(failure.error_code(), "version_probe_timeout");
         assert!(failure.detail().contains("timed out"), "{}", failure.detail());
+    }
+}
+
+#[cfg(test)]
+mod gate_tests {
+    use super::builtin_engine_gated;
+    use aionui_api_types::{AgentHandshake, AgentMetadata, AgentSource, AgentSourceInfo, BehaviorPolicy};
+    use aionui_common::AgentType;
+
+    fn builtin(backend: &str, has_command_override: bool) -> AgentMetadata {
+        AgentMetadata {
+            id: "gate00001".into(),
+            icon: None,
+            name: "Engine".into(),
+            name_i18n: None,
+            description: None,
+            description_i18n: None,
+            backend: Some(backend.into()),
+            agent_type: AgentType::Acp,
+            agent_source: AgentSource::Builtin,
+            agent_source_info: AgentSourceInfo::default(),
+            enabled: true,
+            available: true,
+            command: None,
+            resolved_command: None,
+            args: vec![],
+            env: vec![],
+            native_skills_dirs: None,
+            skill_delivery: None,
+            behavior_policy: BehaviorPolicy::default(),
+            yolo_id: None,
+            sort_order: 0,
+            team_capable: false,
+            last_check_status: None,
+            last_check_kind: None,
+            last_check_error_code: None,
+            last_check_error_message: None,
+            last_check_error_details: None,
+            last_check_guidance: None,
+            last_check_latency_ms: None,
+            last_check_at: None,
+            last_success_at: None,
+            last_failure_at: None,
+            handshake: AgentHandshake::default(),
+            has_command_override,
+            env_override_key_count: 0,
+        }
+    }
+
+    #[test]
+    fn builtin_claude_and_opencode_are_gated_without_override() {
+        assert_eq!(builtin_engine_gated(&builtin("claude", false), false), Some("claude"));
+        assert_eq!(builtin_engine_gated(&builtin("opencode", false), false), Some("opencode"));
+    }
+
+    #[test]
+    fn override_dev_escape_and_other_backends_stay_open() {
+        // A provisioned engine (override applied by the runtime bootstrap)
+        // resolves its own absolute path and is never gated.
+        assert_eq!(builtin_engine_gated(&builtin("claude", true), false), None);
+        // The dev escape hatch re-enables PATH resolution everywhere.
+        assert_eq!(builtin_engine_gated(&builtin("claude", false), true), None);
+        // codex is not part of the Zeus engine lineup and keeps legacy behavior.
+        assert_eq!(builtin_engine_gated(&builtin("codex", false), false), None);
     }
 }
