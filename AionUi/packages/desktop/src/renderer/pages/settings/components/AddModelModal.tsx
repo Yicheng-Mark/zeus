@@ -1,11 +1,5 @@
 import type { IProvider } from '@/common/config/storage';
-import {
-  type AgentScopeBackend,
-  AGENT_SCOPE_LABEL_KEYS,
-  DEFAULT_AGENT_SCOPES,
-  filterScopesForPlatform,
-  platformSupportsAgent,
-} from '@/common/utils/agentScopes';
+import { type AgentScopeBackend, AGENT_SCOPE_LABEL_KEYS } from '@/common/utils/agentScopes';
 import {
   type ModelImageInputChoice,
   type ModelOpenAiApiModeChoice,
@@ -32,7 +26,7 @@ const AddModelModal = ModalHOC<{ data?: IProvider; model?: string; onSubmit: (mo
     const [modelProtocol, setModelProtocol] = useState<string>('openai');
     const [imageInput, setImageInput] = useState<ModelImageInputChoice>('auto');
     const [openAiApiMode, setOpenAiApiMode] = useState<ModelOpenAiApiModeChoice>('auto');
-    const [agentScopes, setAgentScopes] = useState<AgentScopeBackend[]>(DEFAULT_AGENT_SCOPES);
+    const [agentScopes, setAgentScopes] = useState<AgentScopeBackend[]>([]);
     const isNewApi = isNewApiPlatform(data?.platform ?? '');
     const isEditing = Boolean(editingModel);
     const { data: modelList, isLoading } = useModeModeList(data?.platform, data?.base_url, data?.api_key);
@@ -55,7 +49,7 @@ const AddModelModal = ModalHOC<{ data?: IProvider; model?: string; onSubmit: (mo
       setImageInput(settings?.image_input ?? 'auto');
       setOpenAiApiMode(settings?.openai_api_mode ?? 'auto');
       setModelProtocol(editingModel ? (data?.model_protocols?.[editingModel] ?? 'openai') : 'openai');
-      setAgentScopes(filterScopesForPlatform((data?.agent_scopes as AgentScopeBackend[]) ?? DEFAULT_AGENT_SCOPES, data?.platform));
+      setAgentScopes((data?.agent_scopes as AgentScopeBackend[]) ?? []);
     }, [data, editingModel, modalProps.visible]);
 
     const handleConfirm = useCallback(() => {
@@ -192,7 +186,6 @@ const AddModelModal = ModalHOC<{ data?: IProvider; model?: string; onSubmit: (mo
               options={(['aionrs', 'claude', 'opencode'] as AgentScopeBackend[]).map((backend) => ({
                 label: t(AGENT_SCOPE_LABEL_KEYS[backend]),
                 value: backend,
-                disabled: !platformSupportsAgent(data?.platform, backend, modelProtocol),
               }))}
             />
             <div className='text-11px text-t-secondary leading-4'>{t('settings.agentScopesTip')}</div>

@@ -24,6 +24,8 @@ export interface CreateProviderRequest {
   platform: string;
   name: string;
   base_url: string;
+  /** Optional Anthropic-protocol endpoint for dual-protocol providers. */
+  anthropic_base_url?: string;
   api_key: string;
   models?: string[];
   enabled?: boolean;
@@ -35,6 +37,8 @@ export interface CreateProviderRequest {
   model_settings?: IProvider['model_settings'];
   bedrock_config?: IProvider['bedrock_config'];
   is_full_url?: boolean;
+  /** Agent backends this provider is scoped to. Omitted/empty = all agents. */
+  agent_scopes?: string[];
 }
 
 /**
@@ -45,6 +49,8 @@ export interface UpdateProviderRequest {
   platform?: string;
   name?: string;
   base_url?: string;
+  /** Present = set (empty string clears); omitted = keep current value. */
+  anthropic_base_url?: string;
   api_key?: string;
   models?: string[];
   enabled?: boolean;
@@ -56,6 +62,7 @@ export interface UpdateProviderRequest {
   model_settings?: IProvider['model_settings'];
   bedrock_config?: IProvider['bedrock_config'];
   is_full_url?: boolean;
+  agent_scopes?: string[];
 }
 
 /**

@@ -344,6 +344,8 @@
   "baseUrlResetToDefault": "Скинути до типового",
   "fullUrl": "Повний URL",
   "fullUrlMode": "Повний URL",
+  "anthropicBaseUrl": "Адреса, сумісна з Anthropic",
+  "anthropicBaseUrlTip": "Необов’язково. Заповніть, якщо провайдер також надає кінцеву точку протоколу Anthropic (напр., https://api.deepseek.com/anthropic для DeepSeek); після заповнення рушій розробки зможе використовувати цю платформу.",
   "fullUrlHint": "Використовувати цю адресу безпосередньо, без додавання шляху",
   "baseUrlHint": "Система автоматично додасть шлях запиту",
   "modelNotFoundAfterUrlChange": "Модель {{model}} не знайдено за новою адресою; виберіть її знову, якщо не працює.",

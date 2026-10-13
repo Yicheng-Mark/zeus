@@ -13,6 +13,10 @@ pub struct Provider {
     pub platform: String,
     pub name: String,
     pub base_url: String,
+    /// Optional Anthropic-protocol endpoint URL for OpenAI-compatible
+    /// providers (e.g. `https://api.deepseek.com/anthropic`). NULL/empty =
+    /// the provider has no Anthropic-protocol surface.
+    pub anthropic_base_url: Option<String>,
     pub api_key_encrypted: String,
     /// JSON array of model ID strings.
     pub models: String,

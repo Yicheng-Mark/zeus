@@ -23,6 +23,7 @@ fn sample_params() -> CreateProviderParams<'static> {
         platform: "anthropic",
         name: "Anthropic",
         base_url: "https://api.anthropic.com",
+        anthropic_base_url: None,
         api_key_encrypted: "enc_key_data",
         models: r#"["claude-sonnet-4-20250514"]"#,
         enabled: true,
@@ -302,4 +303,31 @@ async fn delete_does_not_affect_other_providers() {
     let all = r.list(USER_ID).await.unwrap();
     assert_eq!(all.len(), 1);
     assert_eq!(all[0].id, p2.id);
+}
+
+// -- Anthropic-protocol base URL (dual-protocol providers) --
+
+#[tokio::test]
+async fn anthropic_base_url_roundtrip_set_and_clear() {
+    let r = repo().await;
+    let mut params = sample_params();
+    params.platform = "custom";
+    params.base_url = "https://api.deepseek.com/v1";
+    params.anthropic_base_url = Some("https://api.deepseek.com/anthropic");
+    let created = r.create(params).await.unwrap();
+    assert_eq!(created.anthropic_base_url.as_deref(), Some("https://api.deepseek.com/anthropic"));
+
+    // Clearing via Some(None) nulls the column; None keeps it.
+    let updated = r
+        .update(
+            USER_ID,
+            &created.id,
+            UpdateProviderParams {
+                anthropic_base_url: Some(None),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(updated.anthropic_base_url, None);
 }

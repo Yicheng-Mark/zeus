@@ -50,7 +50,7 @@ async function runBootstrap(backendPort: number): Promise<IsolatedBootstrapRepor
   if (runtime.claude.present && runtime.opencode.present) {
     report.overrides = await applyIsolatedAgentOverrides(backendPort, paths);
     report.modelProviders = await syncAgentModelRuntimes(backendPort, paths);
-    report.agentDefs = await syncSubAgentDefinitions(paths).catch((err) => {
+    report.agentDefs = await syncSubAgentDefinitions(paths).catch((err): AgentDefsSyncReport | undefined => {
       console.error('[IsolatedRuntime] sub-agent definition sync failed:', err);
       return undefined;
     });
@@ -87,7 +87,7 @@ export async function getIsolatedRuntimeStatus(port: number): Promise<IsolatedRu
   // If a bootstrap already ran, refresh only what is cheap to re-check so the
   // health page reflects reality (e.g. user dropped a binary in manually).
   if (lastReport) {
-    await bootstrapIsolatedRuntimeOnce(port).catch(() => undefined);
+    await bootstrapIsolatedRuntimeOnce(port).catch((): undefined => undefined);
   }
   return { paths, lastReport };
 }

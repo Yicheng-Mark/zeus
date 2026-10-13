@@ -48,6 +48,7 @@ async fn insert_test_provider(repo: &dyn IProviderRepository, id: &str, platform
         platform,
         name: "Test Provider",
         base_url: "https://api.example.com/v1",
+        anthropic_base_url: None,
         api_key_encrypted: &encrypted_api_key,
         models: r#"["gpt-4o","gpt-5.4"]"#,
         enabled: true,
@@ -59,6 +60,7 @@ async fn insert_test_provider(repo: &dyn IProviderRepository, id: &str, platform
         model_settings: "{}",
         bedrock_config: None,
         is_full_url: false,
+        agent_scopes: None,
     })
     .await
     .unwrap();

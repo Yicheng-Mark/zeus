@@ -336,6 +336,8 @@
   "baseUrlResetToDefault": "بازنشانی به پیش‌فرض",
   "fullUrl": "آدرس کامل",
   "fullUrlMode": "آدرس کامل",
+  "anthropicBaseUrl": "نشانی سازگار با Anthropic",
+  "anthropicBaseUrlTip": "اختیاری. اگر ارائه‌دهنده نقطه پایانی پروتکل Anthropic نیز دارد، پر کنید (مثلاً https://api.deepseek.com/anthropic برای DeepSeek) تا موتور توسعه بتواند از این پلتفرم استفاده کند.",
   "fullUrlHint": "از این آدرس مستقیماً استفاده می‌شود، مسیری اضافه نمی‌شود",
   "baseUrlHint": "سیستم به‌صورت خودکار مسیر درخواست را اضافه می‌کند",
   "modelNotFoundAfterUrlChange": "مدل {{model}} در آدرس جدید پیدا نشد؛ اگر کار نکرد، دوباره آن را انتخاب کنید.",

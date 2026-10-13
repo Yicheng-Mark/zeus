@@ -172,6 +172,7 @@ mod tests {
                 platform,
                 name: "Test",
                 base_url,
+                anthropic_base_url: None,
                 api_key_encrypted: &encrypted,
                 models: "[]",
                 enabled: true,

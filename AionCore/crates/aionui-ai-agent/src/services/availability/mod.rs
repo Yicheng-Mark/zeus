@@ -427,6 +427,7 @@ mod tests {
             platform: "openai",
             name: "OpenAI",
             base_url: "https://api.openai.com",
+            anthropic_base_url: None,
             api_key_encrypted: "enc",
             models: r#"["gpt-4"]"#,
             enabled: true,
@@ -438,6 +439,7 @@ mod tests {
             model_settings: "{}",
             bedrock_config: None,
             is_full_url: false,
+            agent_scopes: None,
         }
     }
 

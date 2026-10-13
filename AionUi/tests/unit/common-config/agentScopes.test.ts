@@ -5,12 +5,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import {
-  DEFAULT_AGENT_SCOPES,
-  filterScopesForPlatform,
-  platformSupportsAgent,
-  providerServesAgent,
-} from '@/common/utils/agentScopes';
+import { platformSupportsAgent, providerServesAgent } from '@/common/utils/agentScopes';
 
 describe('providerServesAgent', () => {
   it('treats a provider without scopes as available to every agent (legacy rows)', () => {
@@ -55,23 +50,15 @@ describe('platformSupportsAgent', () => {
     expect(platformSupportsAgent('custom', 'claude')).toBe(false);
     expect(platformSupportsAgent(undefined, 'claude')).toBe(false);
   });
-});
 
-describe('filterScopesForPlatform', () => {
-  it('falls back to all three engines when no scopes were chosen yet', () => {
-    expect(filterScopesForPlatform(undefined, 'custom')).toEqual(['aionrs', 'opencode']);
-    expect(filterScopesForPlatform([], 'anthropic')).toEqual(['aionrs', 'claude']);
-  });
-
-  it('prunes scopes the platform cannot serve but keeps valid ones', () => {
-    expect(filterScopesForPlatform(['aionrs', 'claude', 'opencode'], 'gemini')).toEqual(['aionrs']);
-    expect(filterScopesForPlatform(['claude'], 'new-api', 'anthropic')).toEqual(['claude']);
-    expect(filterScopesForPlatform(['claude'], 'new-api', 'openai')).toEqual([]);
-  });
-});
-
-describe('DEFAULT_AGENT_SCOPES', () => {
-  it('ships all three fixed engines as the default selection', () => {
-    expect(DEFAULT_AGENT_SCOPES).toEqual(['aionrs', 'claude', 'opencode']);
+  describe('platformSupportsAgent with anthropic_base_url (dual-protocol custom)', () => {
+    it('lets claude run custom platforms only when an Anthropic URL is present', () => {
+      expect(platformSupportsAgent('custom', 'claude', undefined, 'https://api.deepseek.com/anthropic')).toBe(true);
+      expect(platformSupportsAgent('custom', 'claude', undefined, '  ')).toBe(false);
+      expect(platformSupportsAgent('custom', 'claude', undefined, undefined)).toBe(false);
+      // Other engines on the same row are unaffected.
+      expect(platformSupportsAgent('custom', 'opencode', undefined, 'https://x/anthropic')).toBe(true);
+      expect(platformSupportsAgent('custom', 'aionrs', undefined, undefined)).toBe(true);
+    });
   });
 });

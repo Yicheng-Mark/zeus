@@ -32,6 +32,8 @@ pub struct CreateProviderParams<'a> {
     pub platform: &'a str,
     pub name: &'a str,
     pub base_url: &'a str,
+    /// Optional Anthropic-protocol endpoint URL. None = no such surface.
+    pub anthropic_base_url: Option<&'a str>,
     pub api_key_encrypted: &'a str,
     pub models: &'a str,
     pub enabled: bool,
@@ -55,6 +57,8 @@ pub struct UpdateProviderParams<'a> {
     pub platform: Option<&'a str>,
     pub name: Option<&'a str>,
     pub base_url: Option<&'a str>,
+    /// `Some(None)` clears the Anthropic-protocol URL; `None` keeps it.
+    pub anthropic_base_url: Option<Option<&'a str>>,
     pub api_key_encrypted: Option<&'a str>,
     pub models: Option<&'a str>,
     pub enabled: Option<bool>,

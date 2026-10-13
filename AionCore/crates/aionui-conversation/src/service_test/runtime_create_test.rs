@@ -338,6 +338,7 @@ async fn provider_repo_with(models_by_provider: &[(&str, &str, bool)]) -> Arc<dy
             platform: "openai",
             name: id,
             base_url: "https://example.invalid",
+            anthropic_base_url: None,
             api_key_encrypted: "enc",
             models,
             enabled: *enabled,
@@ -349,6 +350,7 @@ async fn provider_repo_with(models_by_provider: &[(&str, &str, bool)]) -> Arc<dy
             model_settings: "{}",
             bedrock_config: None,
             is_full_url: false,
+            agent_scopes: None,
         })
         .await
         .unwrap();

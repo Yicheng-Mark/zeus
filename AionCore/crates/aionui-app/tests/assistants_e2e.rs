@@ -300,6 +300,7 @@ async fn fixture() -> Fixture {
             platform: "openai",
             name: "Test OpenAI",
             base_url: "https://example.invalid",
+            anthropic_base_url: None,
             api_key_encrypted: "stub",
             models: "[]",
             enabled: true,
@@ -311,6 +312,7 @@ async fn fixture() -> Fixture {
             model_settings: "{}",
             bedrock_config: None,
             is_full_url: false,
+            agent_scopes: None,
         })
         .await
         .expect("seed provider");

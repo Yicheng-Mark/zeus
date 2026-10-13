@@ -150,8 +150,10 @@ pub fn read_claude_model_info_with_paths(paths: &CcSwitchPaths) -> Option<ModelI
 }
 
 pub fn read_claude_model_info() -> Option<ModelInfoPayload> {
-    let paths = CcSwitchPaths::system()?;
-    read_claude_model_info_with_paths(&paths)
+    // Zeus isolation boundary: model catalogs shown in-app come from the
+    // embedded CLI's own session, never from the HOST's ~/.cc-switch (see
+    // provider_env::read_claude_provider_env).
+    None
 }
 
 #[cfg(test)]

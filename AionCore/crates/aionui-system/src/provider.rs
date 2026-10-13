@@ -52,6 +52,11 @@ impl ProviderService {
             platform: &req.platform,
             name: &req.name,
             base_url: &req.base_url,
+            anthropic_base_url: req
+                .anthropic_base_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty()),
             api_key_encrypted: &encrypted_key,
             models: &models_json,
             enabled: req.enabled,
@@ -97,6 +102,7 @@ impl ProviderService {
             platform: req.platform.as_deref(),
             name: req.name.as_deref(),
             base_url: req.base_url.as_deref(),
+            anthropic_base_url: req.anthropic_base_url.as_deref().map(|s| s.trim()).map(Some),
             api_key_encrypted: encrypted_key.as_deref(),
             models: models_json.as_deref(),
             enabled: req.enabled,
@@ -169,6 +175,7 @@ impl ProviderService {
             platform: row.platform,
             name: row.name,
             base_url: row.base_url,
+            anthropic_base_url: row.anthropic_base_url.filter(|s| !s.trim().is_empty()),
             api_key,
             models,
             enabled: row.enabled,
@@ -356,6 +363,7 @@ mod tests {
             platform: "anthropic".into(),
             name: "Anthropic".into(),
             base_url: "https://api.anthropic.com".into(),
+            anthropic_base_url: None,
             api_key: "sk-ant-api03-test1234".into(),
             models: vec!["claude-sonnet-4-20250514".into()],
             enabled: true,
@@ -432,6 +440,7 @@ mod tests {
     fn validate_create_missing_base_url() {
         let req = CreateProviderRequest {
             base_url: "".into(),
+            anthropic_base_url: None,
             ..sample_create_request()
         };
         assert!(validate_create_request(&req).is_err());
@@ -441,6 +450,7 @@ mod tests {
     fn validate_create_invalid_url() {
         let req = CreateProviderRequest {
             base_url: "not-a-url".into(),
+            anthropic_base_url: None,
             ..sample_create_request()
         };
         assert!(validate_create_request(&req).is_err());
@@ -466,6 +476,7 @@ mod tests {
             platform: "bedrock".into(),
             name: "AWS Bedrock".into(),
             base_url: "".into(),
+            anthropic_base_url: None,
             api_key: "".into(),
             bedrock_config: Some(aionui_api_types::BedrockConfig {
                 auth_method: aionui_api_types::BedrockAuthMethod::Profile,
@@ -485,6 +496,7 @@ mod tests {
             platform: "bedrock".into(),
             name: "AWS Bedrock".into(),
             base_url: "".into(),
+            anthropic_base_url: None,
             api_key: "".into(),
             bedrock_config: None,
             ..sample_create_request()
@@ -510,6 +522,7 @@ mod tests {
     fn validate_update_empty_base_url_ok() {
         let req = UpdateProviderRequest {
             base_url: Some("".into()),
+            anthropic_base_url: None,
             ..Default::default()
         };
         assert!(validate_update_request(&req).is_ok());
@@ -519,6 +532,7 @@ mod tests {
     fn validate_update_invalid_base_url_rejected() {
         let req = UpdateProviderRequest {
             base_url: Some("not-a-url".into()),
+            anthropic_base_url: None,
             ..Default::default()
         };
         assert!(validate_update_request(&req).is_err());
@@ -823,6 +837,7 @@ mod undecryptable_row_tests {
                     platform: "custom".into(),
                     name: "Good".into(),
                     base_url: "http://localhost:1".into(),
+                    anthropic_base_url: None,
                     api_key: "sk-good".into(),
                     models: vec![],
                     enabled: true,
@@ -847,6 +862,7 @@ mod undecryptable_row_tests {
                     platform: "custom".into(),
                     name: "Bad".into(),
                     base_url: "http://localhost:2".into(),
+                    anthropic_base_url: None,
                     api_key: "sk-bad".into(),
                     models: vec![],
                     enabled: true,

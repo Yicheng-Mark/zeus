@@ -662,6 +662,7 @@ mod tests {
             platform: "openai".into(),
             name: id.into(),
             base_url: "https://example.com".into(),
+            anthropic_base_url: None,
             api_key_encrypted: String::new(),
             models: serde_json::to_string(models).unwrap(),
             enabled: true,
@@ -673,6 +674,7 @@ mod tests {
             model_settings: "{}".into(),
             bedrock_config: None,
             is_full_url: false,
+            agent_scopes: None,
             created_at: 0,
             updated_at: 0,
         }

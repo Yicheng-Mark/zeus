@@ -336,6 +336,8 @@
   "baseUrlResetToDefault": "Réinitialiser aux valeurs par défaut",
   "fullUrl": "URL complète",
   "fullUrlMode": "URL complète",
+  "anthropicBaseUrl": "Adresse compatible Anthropic",
+  "anthropicBaseUrlTip": "Facultatif. À remplir si le fournisseur expose aussi un point de terminaison du protocole Anthropic (ex. https://api.deepseek.com/anthropic pour DeepSeek) ; le moteur de développement pourra alors utiliser cette plateforme.",
   "fullUrlHint": "Utilisez cette adresse directement, aucun chemin ajouté",
   "baseUrlHint": "Le système ajoutera automatiquement le chemin de la demande",
   "modelNotFoundAfterUrlChange": "Le modèle {{model}} n'a pas été trouvé à la nouvelle adresse ; resélectionnez-le si cela ne fonctionne pas.",

@@ -50,8 +50,40 @@ export function claudeEnv(paths: IsolatedRuntimePaths): AgentEnvEntry[] {
     // global install and from phoning home.
     { name: 'DISABLE_AUTOUPDATER', value: '1' },
     { name: 'DISABLE_TELEMETRY', value: '1' },
+    // Env isolation: env_override entries are merged ON TOP of the process
+    // environment the app itself was launched with. If Zeus is launched from
+    // a terminal that carries the user's own Claude Code credentials
+    // (ANTHROPIC_* from ~/.claude/settings.json or a VS Code extension
+    // session), the embedded CLI would silently authenticate with them.
+    // Explicitly neutralizing every credential/model-routing variable makes
+    // the isolation hold regardless of how Zeus was started; an active
+    // provider re-fills BASE_URL/AUTH_TOKEN/MODEL in modelProviders.ts.
+    // Empty-string values were verified to make the CLI report a clean
+    // "Not logged in" instead of falling back to inherited values.
+    ...ANTHROPIC_NEUTRALIZED_KEYS.map((name) => ({ name, value: '' })),
   ];
 }
+
+/**
+ * ANTHROPIC_* family that must never leak from the host environment into the
+ * embedded Claude Code: credentials, endpoint, and every model-slot mapping.
+ */
+export const ANTHROPIC_NEUTRALIZED_KEYS = [
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_AUTH_TOKEN',
+  'ANTHROPIC_MODEL',
+  'ANTHROPIC_SMALL_FAST_MODEL',
+  'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  'ANTHROPIC_DEFAULT_OPUS_MODEL_NAME',
+  'ANTHROPIC_DEFAULT_SONNET_MODEL',
+  'ANTHROPIC_DEFAULT_SONNET_MODEL_NAME',
+  'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+  'ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME',
+  'ANTHROPIC_DEFAULT_FABLE_MODEL',
+  'ANTHROPIC_DEFAULT_FABLE_MODEL_NAME',
+  'CLAUDE_CODE_SUBAGENT_MODEL',
+] as const;
 
 function opencodeEnv(paths: IsolatedRuntimePaths): AgentEnvEntry[] {
   return [

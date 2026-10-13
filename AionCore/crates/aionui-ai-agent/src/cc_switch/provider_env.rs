@@ -113,10 +113,12 @@ fn read_env_from_db(db_path: &Path, provider_id: &str) -> HashMap<String, String
 }
 
 pub fn read_claude_provider_env() -> HashMap<String, String> {
-    let Some(paths) = CcSwitchPaths::system() else {
-        return HashMap::new();
-    };
-    read_claude_provider_env_with_paths(&paths)
+    // Zeus isolation boundary: the embedded CLIs must never see provider
+    // credentials from the HOST's ~/.cc-switch. Provider env comes exclusively
+    // from the app's own provider system (agent env_override assembled by
+    // AionUi's isolatedRuntime). The _with_paths variant stays available for
+    // tests and any future in-app provider-switching UI.
+    HashMap::new()
 }
 
 #[cfg(test)]

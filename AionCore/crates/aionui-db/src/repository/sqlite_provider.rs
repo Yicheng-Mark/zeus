@@ -47,16 +47,17 @@ impl IProviderRepository for SqliteProviderRepository {
 
         sqlx::query(
             "INSERT INTO providers \
-                (id, user_id, platform, name, base_url, api_key_encrypted, models, enabled, \
+                (id, user_id, platform, name, base_url, anthropic_base_url, api_key_encrypted, models, enabled, \
                  capabilities, context_limit, model_protocols, model_enabled, \
                  model_health, model_settings, bedrock_config, is_full_url, agent_scopes, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(params.user_id)
         .bind(params.platform)
         .bind(params.name)
         .bind(params.base_url)
+        .bind(params.anthropic_base_url)
         .bind(params.api_key_encrypted)
         .bind(params.models)
         .bind(params.enabled)
@@ -86,6 +87,7 @@ impl IProviderRepository for SqliteProviderRepository {
             platform: params.platform.to_string(),
             name: params.name.to_string(),
             base_url: params.base_url.to_string(),
+            anthropic_base_url: params.anthropic_base_url.map(String::from),
             api_key_encrypted: params.api_key_encrypted.to_string(),
             models: params.models.to_string(),
             enabled: params.enabled,
@@ -113,7 +115,7 @@ impl IProviderRepository for SqliteProviderRepository {
 
         sqlx::query(
             "UPDATE providers SET \
-                platform = ?, name = ?, base_url = ?, api_key_encrypted = ?, \
+                platform = ?, name = ?, base_url = ?, anthropic_base_url = ?, api_key_encrypted = ?, \
                 models = ?, enabled = ?, capabilities = ?, context_limit = ?, \
                 model_protocols = ?, model_enabled = ?, model_health = ?, \
                 model_settings = ?, bedrock_config = ?, is_full_url = ?, agent_scopes = ?, updated_at = ? \
@@ -122,6 +124,7 @@ impl IProviderRepository for SqliteProviderRepository {
         .bind(&merged.platform)
         .bind(&merged.name)
         .bind(&merged.base_url)
+        .bind(&merged.anthropic_base_url)
         .bind(&merged.api_key_encrypted)
         .bind(&merged.models)
         .bind(merged.enabled)
@@ -172,6 +175,9 @@ fn merge_update(existing: Provider, params: UpdateProviderParams<'_>) -> Provide
         platform: params.platform.unwrap_or(&existing.platform).to_string(),
         name: params.name.unwrap_or(&existing.name).to_string(),
         base_url: params.base_url.unwrap_or(&existing.base_url).to_string(),
+        anthropic_base_url: params
+            .anthropic_base_url
+            .map_or(existing.anthropic_base_url, |v| v.map(String::from)),
         api_key_encrypted: params
             .api_key_encrypted
             .unwrap_or(&existing.api_key_encrypted)
@@ -230,6 +236,7 @@ mod tests {
             platform: "anthropic",
             name: "Anthropic",
             base_url: "https://api.anthropic.com",
+            anthropic_base_url: None,
             api_key_encrypted: "encrypted_key_data",
             models: r#"["claude-sonnet-4-20250514"]"#,
             enabled: true,

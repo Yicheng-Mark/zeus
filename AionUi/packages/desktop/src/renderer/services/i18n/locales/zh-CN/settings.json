@@ -336,6 +336,8 @@
   "baseUrlResetToDefault": "重置为默认",
   "fullUrl": "完整URL",
   "fullUrlMode": "完整 URL",
+  "anthropicBaseUrl": "Anthropic 兼容地址",
+  "anthropicBaseUrlTip": "可选。供应商同时提供 Anthropic 协议端点时填写（如 DeepSeek 的 https://api.deepseek.com/anthropic），填写后开发引擎即可使用该平台。",
   "fullUrlHint": "直接使用此地址，不拼接路径",
   "baseUrlHint": "系统会自动拼接请求路径",
   "modelNotFoundAfterUrlChange": "模型 {{model}} 在新地址未找到，如不可用请重新选择。",

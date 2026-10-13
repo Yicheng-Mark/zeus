@@ -523,6 +523,14 @@ export interface IProvider {
   platform: string;
   name: string;
   base_url: string;
+  /**
+   * 可选的 Anthropic 协议端点地址（OpenAI 兼容供应商同时提供 Anthropic 兼容
+   * 端点时使用，如 DeepSeek 的 …/anthropic）。为空表示该供应商没有
+   * Anthropic 协议面，开发引擎（claude）无法使用它。
+   * Optional Anthropic-protocol endpoint URL for dual-protocol providers.
+   * Empty/undefined = no Anthropic surface; the claude engine cannot use it.
+   */
+  anthropic_base_url?: string;
   api_key: string;
   models: string[];
   /**

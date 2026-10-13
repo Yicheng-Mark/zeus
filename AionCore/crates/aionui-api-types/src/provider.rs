@@ -153,6 +153,11 @@ pub struct ProviderResponse {
     pub platform: String,
     pub name: String,
     pub base_url: String,
+    /// Optional Anthropic-protocol endpoint URL (OpenAI-compatible providers
+    /// that also expose an Anthropic-compatible surface, e.g. DeepSeek's
+    /// `…/anthropic`). `None`/empty = not available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anthropic_base_url: Option<String>,
     /// Plaintext API key (decrypted from storage).
     pub api_key: String,
     pub models: Vec<String>,
@@ -191,6 +196,9 @@ pub struct CreateProviderRequest {
     pub platform: String,
     pub name: String,
     pub base_url: String,
+    /// Optional Anthropic-protocol endpoint URL. `None`/empty = not available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anthropic_base_url: Option<String>,
     /// Plain-text API key (supports comma/newline-separated multi-keys).
     pub api_key: String,
     #[serde(default)]
@@ -230,6 +238,8 @@ pub struct UpdateProviderRequest {
     pub platform: Option<String>,
     pub name: Option<String>,
     pub base_url: Option<String>,
+    /// `Some(None)`/`Some("")` clears the Anthropic-protocol URL; `None` keeps it.
+    pub anthropic_base_url: Option<String>,
     pub api_key: Option<String>,
     pub models: Option<Vec<String>>,
     pub enabled: Option<bool>,
@@ -499,6 +509,7 @@ mod tests {
             platform: "anthropic".into(),
             name: "Anthropic".into(),
             base_url: "https://api.anthropic.com".into(),
+            anthropic_base_url: None,
             api_key: "sk-ant-api03-plaintext".into(),
             models: vec!["claude-sonnet-4-20250514".into()],
             enabled: true,
@@ -537,6 +548,7 @@ mod tests {
             platform: "openai".into(),
             name: "n".into(),
             base_url: "https://api.openai.com".into(),
+            anthropic_base_url: None,
             api_key: "sk-secret-xyz".into(),
             models: vec![],
             enabled: true,
@@ -660,6 +672,7 @@ mod tests {
             platform: "openai".into(),
             name: "OpenAI".into(),
             base_url: "https://api.openai.com".into(),
+            anthropic_base_url: None,
             api_key: "sk-test".into(),
             models: vec![],
             enabled: true,
@@ -700,6 +713,7 @@ mod tests {
             platform: "openai".into(),
             name: "n".into(),
             base_url: "https://api.openai.com".into(),
+            anthropic_base_url: None,
             api_key: "sk".into(),
             models: vec![],
             enabled: true,

@@ -153,7 +153,12 @@ const AssistantEditorSections: React.FC<AssistantEditorSectionsProps> = ({ edito
       .flatMap((provider) =>
         getAvailableModels(provider)
           .filter((modelName) =>
-            platformSupportsAgent(provider.platform, runtime, provider.model_protocols?.[modelName])
+            platformSupportsAgent(
+              provider.platform,
+              runtime,
+              provider.model_protocols?.[modelName],
+              provider.anthropic_base_url
+            )
           )
           .map((modelName) => ({
             key: `${provider.id}-${modelName}`,

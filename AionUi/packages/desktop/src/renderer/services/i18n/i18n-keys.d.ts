@@ -1540,6 +1540,8 @@ export type I18nKey =
   | 'settings.agentScopesTip'
   | 'settings.agent_name'
   | 'settings.agents'
+  | 'settings.anthropicBaseUrl'
+  | 'settings.anthropicBaseUrlTip'
   | 'settings.apiEndpoint'
   | 'settings.apiKey'
   | 'settings.apiKeyCount'
