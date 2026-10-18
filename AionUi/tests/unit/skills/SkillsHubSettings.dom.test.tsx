@@ -11,6 +11,7 @@ import React from 'react';
  */
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { SWRConfig } from 'swr';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -20,6 +21,8 @@ const mocks = vi.hoisted(() => ({
   importSkills: vi.fn(),
   deleteSkill: vi.fn(),
   showOpen: vi.fn(),
+  listAssistants: vi.fn(),
+  updateAssistant: vi.fn(),
   messageError: vi.fn(),
   messageSuccess: vi.fn(),
   messageWarning: vi.fn(),
@@ -44,6 +47,10 @@ vi.mock('@/common', () => ({
     },
     dialog: {
       showOpen: { invoke: mocks.showOpen },
+    },
+    assistants: {
+      list: { invoke: mocks.listAssistants },
+      update: { invoke: mocks.updateAssistant },
     },
   },
 }));
@@ -89,6 +96,43 @@ vi.mock('react-i18next', () => ({
 
 import SkillsHubSettings from '@/renderer/pages/settings/SkillsSettings/SkillsHubSettings';
 
+/** Minimal assistant row; override the fields a test cares about. */
+const makeAssistant = (overrides: Record<string, unknown>) =>
+  ({
+    id: 'assistant',
+    source: 'generated',
+    name: 'Assistant',
+    name_i18n: {},
+    description_i18n: {},
+    enabled: true,
+    sort_order: 0,
+    agent_id: 'agent',
+    agent: { type: 'acp', source: 'builtin', acp_backend: 'claude' },
+    enabled_skills: [],
+    custom_skill_names: [],
+    disabled_builtin_skills: [],
+    context_i18n: {},
+    prompts: [],
+    prompts_i18n: {},
+    models: [],
+    agent_status: 'online',
+    team_selectable: false,
+    deletable: false,
+    ...overrides,
+  }) as never;
+
+/**
+ * SWR's default cache is module-scoped and outlives a test, and a fresh entry
+ * suppresses the mount refetch — so each render that depends on the assistant
+ * catalog gets its own cache.
+ */
+const renderPage = () =>
+  render(
+    <SWRConfig value={{ provider: () => new Map() }}>
+      <SkillsHubSettings withWrapper={false} />
+    </SWRConfig>
+  );
+
 describe('SkillsHubSettings', () => {
   // The import action is a plain button that runs the manual import directly.
   const triggerManualImport = async () => {
@@ -107,6 +151,8 @@ describe('SkillsHubSettings', () => {
       max_file_bytes: 12 * 1024 * 1024,
       max_total_bytes: 64 * 1024 * 1024,
     });
+    mocks.listAssistants.mockResolvedValue([]);
+    mocks.updateAssistant.mockResolvedValue(undefined);
   });
 
   it('exports a component (smoke)', () => {
@@ -393,6 +439,181 @@ describe('SkillsHubSettings', () => {
       // Re-entering batch mode starts with a clean selection.
       fireEvent.click(screen.getByTestId('btn-batch-manage'));
       expect(screen.getByText('0 selected')).toBeInTheDocument();
+    });
+  });
+
+  describe('per-agent skill scopes', () => {
+    /** The three engine agents plus one user-created assistant. */
+    const assistantCatalog = () => [
+      makeAssistant({
+        id: 'bare:agent-opencode',
+        agent: { type: 'acp', source: 'builtin', acp_backend: 'opencode' },
+        enabled_skills: ['officecli-docx', 'data-sql-queries'],
+      }),
+      makeAssistant({
+        id: 'bare:agent-aionrs',
+        agent: { type: 'aionrs', source: 'internal' },
+        enabled_skills: ['design-design-system'],
+      }),
+      makeAssistant({
+        id: 'bare:agent-claude',
+        agent: { type: 'acp', source: 'builtin', acp_backend: 'claude' },
+        enabled_skills: ['engineering-code-review'],
+        disabled_builtin_skills: ['engineering-debug'],
+      }),
+      makeAssistant({
+        id: 'user-created',
+        source: 'user',
+        agent: { type: 'acp', source: 'custom', acp_backend: 'claude' },
+      }),
+    ];
+
+    it('offers one capsule segment per engine agent plus the imported skills', async () => {
+      mocks.listAssistants.mockResolvedValue(assistantCatalog());
+      renderPage();
+
+      await waitFor(() => expect(screen.getByTestId('skill-scope-claude')).toBeInTheDocument());
+      expect(screen.getByTestId('skill-scope-opencode')).toBeInTheDocument();
+      expect(screen.getByTestId('skill-scope-aionrs')).toBeInTheDocument();
+      expect(screen.getByTestId('skill-scope-custom')).toBeInTheDocument();
+      // A user-created assistant on the same engine is not one of the agents.
+      expect(screen.queryByTestId('skill-scope-user-created')).not.toBeInTheDocument();
+    });
+
+    it('shows the first agent skill set on load, grouped by category', async () => {
+      mocks.listAssistants.mockResolvedValue(assistantCatalog());
+      renderPage();
+
+      expect(await screen.findByTestId('agent-skill-row-officecli-docx')).toBeInTheDocument();
+      expect(screen.getByTestId('agent-skill-row-data-sql-queries')).toBeInTheDocument();
+      expect(screen.getByTestId('skill-category-docs')).toBeInTheDocument();
+      expect(screen.getByTestId('skill-category-data')).toBeInTheDocument();
+    });
+
+    it('switches to another agent skill set when its segment is selected', async () => {
+      mocks.listAssistants.mockResolvedValue(assistantCatalog());
+      renderPage();
+
+      await screen.findByTestId('agent-skill-row-officecli-docx');
+      fireEvent.click(screen.getByTestId('skill-scope-claude'));
+
+      expect(await screen.findByTestId('agent-skill-row-engineering-code-review')).toBeInTheDocument();
+      expect(screen.getByTestId('agent-skill-row-engineering-debug')).toHaveAttribute('data-skill-enabled', 'false');
+      expect(screen.queryByTestId('agent-skill-row-officecli-docx')).not.toBeInTheDocument();
+    });
+
+    it('cancelling a skill drops it from the agent defaults and remembers it', async () => {
+      mocks.listAssistants.mockResolvedValue(assistantCatalog());
+      renderPage();
+
+      await screen.findByTestId('agent-skill-row-officecli-docx');
+      fireEvent.click(screen.getByTestId('btn-toggle-skill-officecli-docx'));
+
+      await waitFor(() =>
+        expect(mocks.updateAssistant).toHaveBeenCalledWith({
+          id: 'bare:agent-opencode',
+          enabled_skills: ['data-sql-queries'],
+          disabled_builtin_skills: ['officecli-docx'],
+        })
+      );
+    });
+
+    it('restoring a cancelled skill puts it back and clears the cancellation', async () => {
+      mocks.listAssistants.mockResolvedValue(assistantCatalog());
+      renderPage();
+
+      await screen.findByTestId('agent-skill-row-officecli-docx');
+      fireEvent.click(screen.getByTestId('skill-scope-claude'));
+      fireEvent.click(await screen.findByTestId('btn-toggle-skill-engineering-debug'));
+
+      await waitFor(() =>
+        expect(mocks.updateAssistant).toHaveBeenCalledWith({
+          id: 'bare:agent-claude',
+          enabled_skills: ['engineering-code-review', 'engineering-debug'],
+          disabled_builtin_skills: [],
+        })
+      );
+    });
+
+    it('surfaces a failed update instead of pretending the skill changed', async () => {
+      mocks.listAssistants.mockResolvedValue(assistantCatalog());
+      mocks.updateAssistant.mockRejectedValue(new Error('backend down'));
+      renderPage();
+
+      await screen.findByTestId('agent-skill-row-officecli-docx');
+      fireEvent.click(screen.getByTestId('btn-toggle-skill-officecli-docx'));
+
+      await waitFor(() => expect(mocks.messageError).toHaveBeenCalledWith('Failed to update the skill'));
+    });
+
+    it('keeps the imported skills reachable when no engine agent exists', async () => {
+      mocks.listAssistants.mockResolvedValue([]);
+      renderPage();
+
+      await waitFor(() => expect(mocks.listAssistants).toHaveBeenCalled());
+      expect(screen.queryByTestId('skill-scope-claude')).not.toBeInTheDocument();
+      expect(screen.getByTestId('skill-scope-custom')).toBeInTheDocument();
+      expect(screen.getByTestId('my-skills-section')).toBeInTheDocument();
+    });
+  });
+
+  describe('deleting an imported skill', () => {
+    const importedSkill = {
+      name: 'skill-alpha',
+      description: 'Imported fixture.',
+      location: '/tmp/user-skills/skill-alpha',
+      is_custom: true,
+      source: 'custom' as const,
+    };
+
+    const confirmDelete = async () => {
+      await waitFor(() => expect(mocks.modalConfirm).toHaveBeenCalled());
+      const config = mocks.modalConfirm.mock.calls.at(-1)?.[0] as { onOk?: () => Promise<void> };
+      await config.onOk?.();
+    };
+
+    beforeEach(() => {
+      mocks.listAvailableSkills.mockResolvedValue([importedSkill]);
+      mocks.deleteSkill.mockResolvedValue(undefined);
+    });
+
+    it('detaches the deleted skill from every assistant that listed it', async () => {
+      mocks.listAssistants.mockResolvedValue([
+        makeAssistant({
+          id: 'bare:agent-opencode',
+          agent: { type: 'acp', source: 'builtin', acp_backend: 'opencode' },
+          enabled_skills: ['officecli-docx', 'skill-alpha'],
+          custom_skill_names: ['skill-alpha'],
+        }),
+      ]);
+      renderPage();
+
+      fireEvent.click(await screen.findByTestId('skill-scope-custom'));
+      fireEvent.click(await screen.findByTestId('btn-delete-skill-alpha'));
+      await confirmDelete();
+
+      await waitFor(() =>
+        expect(mocks.updateAssistant).toHaveBeenCalledWith({
+          id: 'bare:agent-opencode',
+          enabled_skills: ['officecli-docx'],
+          custom_skill_names: [],
+          disabled_builtin_skills: [],
+        })
+      );
+    });
+
+    it('leaves a built-in assistant alone, since the backend rejects skill edits on it', async () => {
+      mocks.listAssistants.mockResolvedValue([
+        makeAssistant({ id: 'builtin-butler', source: 'builtin', enabled_skills: ['skill-alpha'] }),
+      ]);
+      renderPage();
+
+      fireEvent.click(await screen.findByTestId('skill-scope-custom'));
+      fireEvent.click(await screen.findByTestId('btn-delete-skill-alpha'));
+      await confirmDelete();
+
+      await waitFor(() => expect(mocks.deleteSkill).toHaveBeenCalledWith({ skill_name: 'skill-alpha' }));
+      expect(mocks.updateAssistant).not.toHaveBeenCalled();
     });
   });
 });

@@ -57,6 +57,13 @@ export async function goToSkillsHub(page: Page): Promise<void> {
   // Wait a bit for React Router to settle
   await page.waitForTimeout(500);
 
+  // The page opens on the first detected engine agent's skill set; every spec
+  // in this suite manages the user's imported skills, so select that segment.
+  // Wait for the segment first — it renders once the assistant catalog lands.
+  const segment = page.locator('[data-testid="skill-scope-custom"]');
+  await segment.waitFor({ state: 'visible', timeout: 15_000 });
+  await segment.click();
+
   // Wait for tab content to load. Dev-mode cold boot needs ~6-15s after
   // navigation before SkillsHub's unconditional `my-skills-section` div
   // finishes layout (Vite dev + Arco Tabs + initial skill list render).

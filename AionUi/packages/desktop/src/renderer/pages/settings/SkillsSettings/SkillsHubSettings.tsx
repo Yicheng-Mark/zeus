@@ -1,5 +1,6 @@
 import { ipcBridge } from '@/common';
-import type { Assistant } from '@/common/types/agent/assistantTypes';
+import { AGENT_SCOPE_LABEL_KEYS, type AgentScopeBackend } from '@/common/utils/agentScopes';
+import { assistantRuntimeKey, type Assistant } from '@/common/types/agent/assistantTypes';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { Button, Checkbox, Message, Modal } from '@arco-design/web-react';
 import { Delete } from '@icon-park/react';
@@ -7,11 +8,14 @@ import React, { useCallback, useEffect, useRef, useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import useSWR from 'swr';
+import AgentSkillPane from './AgentSkillPane';
+import SkillScopeCapsule, { type SkillScopeSegment } from './SkillScopeCapsule';
 import SkillUsedByStack, { getAssistantsUsingSkill } from './SkillUsedByStack';
 import SettingsPageWrapper from '../components/SettingsPageWrapper';
 import SettingsPageHeader from '../components/SettingsPageHeader';
 import { AionSearchInput } from '@/renderer/components/base';
 import { buildSkillImportNotice, getSkillImportErrorMessage } from './skillImportMessages';
+import { normalizeSkillTestId } from './skillTestIds';
 
 // Skill 信息类型 / Skill info type
 interface SkillInfo {
@@ -34,10 +38,16 @@ interface SkillImportLimits {
   max_total_bytes: number;
 }
 
-// Normalize skill name for data-testid usage
-const normalizeTestId = (name: string): string => {
-  return name.replace(/[:/\s<>"'|?*]/g, '-');
-};
+/**
+ * The three fixed Zeus agents, in capsule order. Each one is the generated
+ * assistant bound to that engine (`source: 'generated'`), the same identity
+ * the home page's workspace pills resolve — see `AGENT_SCOPE_LABEL_KEYS` for
+ * the shared backend -> label mapping.
+ */
+const AGENT_SCOPE_ORDER: AgentScopeBackend[] = ['opencode', 'aionrs', 'claude'];
+
+/** Capsule key of the user's imported skills, which are not tied to an engine. */
+const CUSTOM_SCOPE_KEY = 'custom';
 
 const getAvatarColorClass = (name: string) => {
   if (!name) return 'bg-[#165DFF] text-white';
@@ -65,6 +75,21 @@ const formatBytes = (bytes?: number): string | null => {
   return `${kb.toFixed(kb >= 10 ? 0 : 1)} KB`;
 };
 
+/**
+ * Resolve the three engine-bound agents from the live catalog, in capsule
+ * order. Engines whose agent row is missing (not installed, not detected) are
+ * simply absent — their capsule segment is not rendered.
+ */
+export const resolveAgentScopes = (
+  assistants: Assistant[]
+): Array<{ backend: AgentScopeBackend; assistant: Assistant }> =>
+  AGENT_SCOPE_ORDER.flatMap((backend) => {
+    const assistant = assistants.find(
+      (candidate) => candidate.source === 'generated' && assistantRuntimeKey(candidate) === backend
+    );
+    return assistant ? [{ backend, assistant }] : [];
+  });
+
 interface SkillsHubSettingsProps {
   /** When false, renders without SettingsPageWrapper — useful for embedding in a tab */
   withWrapper?: boolean;
@@ -86,8 +111,16 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
   // Batch management: multi-select skills for bulk deletion.
   const [batchMode, setBatchMode] = useState(false);
   const [selectedSkillNames, setSelectedSkillNames] = useState<Set<string>>(new Set());
-  // Assistant catalog for the "used by" avatar stacks on skill cards.
-  const { data: assistantCatalog } = useSWR<Assistant[]>('assistants.list', () => ipcBridge.assistants.list.invoke());
+  // Which capsule segment is showing. Empty means "no explicit choice yet",
+  // which resolves to the first segment — the first detected engine agent, or
+  // the imported skills when no engine agent exists.
+  const [scope, setScope] = useState('');
+  // Skill of the agent toggle currently in flight.
+  const [pendingSkill, setPendingSkill] = useState<string | null>(null);
+  // Assistant catalog drives both the capsule and the "used by" avatar stacks.
+  const { data: assistantCatalog, mutate: mutateAssistants } = useSWR<Assistant[]>('assistants.list', () =>
+    ipcBridge.assistants.list.invoke()
+  );
 
   const openSkillDetail = useCallback(
     (skillName: string) => {
@@ -96,9 +129,34 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
     [navigate]
   );
 
-  // Only user-imported skills are managed here; the builtin corpus reaches
-  // agents through the fixed per-mode presets instead of this page.
+  // Only user-imported skills are managed in the Custom segment; the builtin
+  // corpus reaches agents through the fixed per-mode presets instead.
   const mySkills = useMemo(() => availableSkills.filter((s) => s.source === 'custom'), [availableSkills]);
+
+  // Skill name -> description for every catalog entry an agent can carry.
+  const skillDescriptions = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const skill of availableSkills) map[skill.name] = skill.description;
+    return map;
+  }, [availableSkills]);
+
+  const agentScopes = useMemo(() => resolveAgentScopes(assistantCatalog ?? []), [assistantCatalog]);
+
+  const segments = useMemo<SkillScopeSegment[]>(() => {
+    const agentSegments = agentScopes.map(({ backend }) => ({
+      key: backend,
+      label: t(AGENT_SCOPE_LABEL_KEYS[backend], { defaultValue: backend }),
+    }));
+    return [
+      ...agentSegments,
+      { key: CUSTOM_SCOPE_KEY, label: t('settings.skillsHub.tabCustom', { defaultValue: 'My Skills' }) },
+    ];
+  }, [agentScopes, t]);
+
+  const activeScope = segments.some((segment) => segment.key === scope)
+    ? scope
+    : (segments[0]?.key ?? CUSTOM_SCOPE_KEY);
+  const activeAgent = agentScopes.find(({ backend }) => backend === activeScope)?.assistant;
 
   const matchesQuery = useCallback(
     (list: SkillInfo[]) => {
@@ -135,9 +193,15 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
     void fetchData();
   }, [fetchData]);
 
-  // Scroll to and highlight a skill when navigated with ?highlight=skillName
+  // Scroll to and highlight a skill when navigated with ?highlight=skillName.
+  // Only imported skills carry a ref (the detail page links back here), so the
+  // Custom segment is selected first and the scroll retried on the next pass.
   useEffect(() => {
     if (!highlightName || loading) return;
+    if (mySkills.some((skill) => skill.name === highlightName) && activeScope !== CUSTOM_SCOPE_KEY) {
+      setScope(CUSTOM_SCOPE_KEY);
+      return;
+    }
     const el = skillRefs.current[highlightName];
     if (el) {
       // Small delay to ensure layout is settled
@@ -151,7 +215,7 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
         return () => clearTimeout(timer);
       });
     }
-  }, [highlightName, loading, setSearchParams]);
+  }, [highlightName, loading, mySkills, activeScope, setSearchParams]);
 
   const handleImport = async (skillPath: string) => {
     try {
@@ -166,6 +230,7 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
       }
       if (notice.importedNames.length > 0) {
         setSearchQuery('');
+        setScope(CUSTOM_SCOPE_KEY);
         void fetchData();
       } else if (notice.type !== 'success') {
         void fetchData();
@@ -176,11 +241,50 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
     }
   };
 
+  /**
+   * Drop deleted skill names from every assistant still listing them.
+   *
+   * Deleting takes the skill off disk; an assistant whose `enabled_skills`
+   * still holds the name would keep a row the catalog can no longer describe.
+   * Built-in assistants reject skill edits on the backend, so they are
+   * skipped. Best-effort — the skill is gone either way, and a stale name only
+   * costs a nameless row until the next delete.
+   */
+  const detachDeletedSkills = useCallback(
+    async (deletedNames: string[]) => {
+      const deleted = new Set(deletedNames);
+      const affected = (assistantCatalog ?? []).filter(
+        (assistant) =>
+          assistant.source !== 'builtin' &&
+          [
+            ...(assistant.enabled_skills ?? []),
+            ...(assistant.custom_skill_names ?? []),
+            ...(assistant.disabled_builtin_skills ?? []),
+          ].some((name) => deleted.has(name))
+      );
+      if (affected.length === 0) return;
+
+      await Promise.allSettled(
+        affected.map((assistant) =>
+          ipcBridge.assistants.update.invoke({
+            id: assistant.id,
+            enabled_skills: (assistant.enabled_skills ?? []).filter((name) => !deleted.has(name)),
+            custom_skill_names: (assistant.custom_skill_names ?? []).filter((name) => !deleted.has(name)),
+            disabled_builtin_skills: (assistant.disabled_builtin_skills ?? []).filter((name) => !deleted.has(name)),
+          })
+        )
+      );
+      await mutateAssistants();
+    },
+    [assistantCatalog, mutateAssistants]
+  );
+
   const handleDelete = async (skillName: string) => {
     try {
       await ipcBridge.fs.deleteSkill.invoke({ skill_name: skillName });
       Message.success(t('settings.skillsHub.deleteSuccess', { defaultValue: 'Skill deleted' }));
       void fetchData();
+      void detachDeletedSkills([skillName]);
     } catch (error) {
       console.error('Failed to delete skill:', error);
       Message.error(t('settings.skillsHub.deleteError', { defaultValue: 'Error deleting skill' }));
@@ -234,6 +338,7 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
         );
         const successCount = results.filter((r) => r.status === 'fulfilled').length;
         const failedCount = results.length - successCount;
+        const deletedNames = names.filter((_, index) => results[index].status === 'fulfilled');
         if (failedCount === 0) {
           Message.success(
             t('settings.skillsHub.batchDeleteSuccess', {
@@ -254,9 +359,10 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
         }
         exitBatchMode();
         void fetchData();
+        void detachDeletedSkills(deletedNames);
       },
     });
-  }, [selectedSkillNames, exitBatchMode, fetchData, t]);
+  }, [selectedSkillNames, exitBatchMode, fetchData, detachDeletedSkills, t]);
 
   const handleManualImport = async () => {
     try {
@@ -271,6 +377,43 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
       console.error('Failed to open directory dialog:', error);
     }
   };
+
+  /**
+   * Cancel/restore one skill on one agent.
+   *
+   * `enabled_skills` is the only field a new conversation reads
+   * (`resolve_assistant_snapshot` -> `default_skill_ids`), so cancelling means
+   * removing the name there; `disabled_builtin_skills` keeps the name so the
+   * row can offer "restore" instead of vanishing.
+   */
+  const handleToggleAgentSkill = useCallback(
+    async (assistant: Assistant, skillName: string, enabled: boolean) => {
+      const currentEnabled = assistant.enabled_skills ?? [];
+      const currentDisabled = assistant.disabled_builtin_skills ?? [];
+      const nextEnabled = enabled
+        ? [...currentEnabled, skillName]
+        : currentEnabled.filter((name) => name !== skillName);
+      const nextDisabled = enabled
+        ? currentDisabled.filter((name) => name !== skillName)
+        : [...currentDisabled, skillName];
+
+      setPendingSkill(skillName);
+      try {
+        await ipcBridge.assistants.update.invoke({
+          id: assistant.id,
+          enabled_skills: Array.from(new Set(nextEnabled)),
+          disabled_builtin_skills: Array.from(new Set(nextDisabled)),
+        });
+        await mutateAssistants();
+      } catch (error) {
+        console.error('Failed to update assistant skills:', error);
+        Message.error(t('settings.skillsHub.skillToggleError', { defaultValue: 'Failed to update the skill' }));
+      } finally {
+        setPendingSkill(null);
+      }
+    },
+    [mutateAssistants, t]
+  );
 
   // Batch selection helpers scoped to the visible (filtered) custom skills.
   const allVisibleSelected = filteredSkills.length > 0 && filteredSkills.every((s) => selectedSkillNames.has(s.name));
@@ -372,7 +515,7 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
           {filteredSkills.map((skill) => (
             <div
               key={skill.name}
-              data-testid={`my-skill-card-${normalizeTestId(skill.name)}`}
+              data-testid={`my-skill-card-${normalizeSkillTestId(skill.name)}`}
               ref={(el) => {
                 skillRefs.current[skill.name] = el;
               }}
@@ -382,7 +525,7 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
               {batchMode && (
                 <div className='shrink-0 flex items-center sm:self-center'>
                   <Checkbox
-                    data-testid={`checkbox-skill-${normalizeTestId(skill.name)}`}
+                    data-testid={`checkbox-skill-${normalizeSkillTestId(skill.name)}`}
                     checked={selectedSkillNames.has(skill.name)}
                     onChange={() => toggleSkillSelected(skill.name)}
                     onClick={(e) => e.stopPropagation()}
@@ -410,7 +553,7 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
                 <div className='shrink-0 sm:self-center flex items-center justify-end gap-10px mt-12px sm:mt-0 ps-4px'>
                   <SkillUsedByStack assistants={getAssistantsUsingSkill(skill.name, assistantCatalog ?? [])} />
                   <button
-                    data-testid={`btn-delete-${normalizeTestId(skill.name)}`}
+                    data-testid={`btn-delete-${normalizeSkillTestId(skill.name)}`}
                     className='p-8px hover:bg-danger-1 hover:text-danger-6 text-t-tertiary rd-6px outline-none flex items-center justify-center border border-transparent cursor-pointer transition-colors shadow-sm bg-base sm:bg-transparent sm:shadow-none opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity'
                     onClick={(e) => {
                       e.stopPropagation();
@@ -459,11 +602,25 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
     </div>
   );
 
+  const enabledSkillCount = activeAgent ? new Set(activeAgent.enabled_skills ?? []).size : mySkills.length;
+  const importedSkillNames = useMemo(
+    () => new Set(activeAgent?.custom_skill_names ?? []),
+    [activeAgent?.custom_skill_names]
+  );
+
   const mainContent = (
     <div className='flex flex-col gap-16px'>
       <SettingsPageHeader
         data-testid='skills-header'
-        title={t('settings.skills', { defaultValue: 'Skills' })}
+        centered
+        title={
+          <span className='inline-flex items-center justify-center gap-8px'>
+            <span>{t('settings.skillsHub.tabCustom', { defaultValue: 'My Skills' })}</span>
+            <span className='inline-flex h-20px min-w-20px items-center justify-center rounded-999px bg-fill-2 px-8px text-12px font-500 leading-none text-t-secondary'>
+              {enabledSkillCount}
+            </span>
+          </span>
+        }
         description={t('settings.skillsHub.description', {
           defaultValue: 'Centrally manage AI skill packs — install once, use across all assistants.',
         })}
@@ -490,16 +647,28 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
             </Button>
           </>
         }
-        tabs={[
-          {
-            key: 'custom',
-            label: t('settings.skillsHub.tabCustom', { defaultValue: 'Custom' }),
-            count: mySkills.length,
-          },
-        ]}
-        activeTab='custom'
       />
-      {customPane}
+      <div className='flex justify-center'>
+        <SkillScopeCapsule
+          segments={segments}
+          activeKey={activeScope}
+          onChange={setScope}
+          testIdPrefix='skill-scope'
+          ariaLabel={t('settings.skillsHub.scopeLabel', { defaultValue: 'Skill scope' })}
+        />
+      </div>
+      {activeAgent ? (
+        <AgentSkillPane
+          assistant={activeAgent}
+          descriptions={skillDescriptions}
+          importedSkills={importedSkillNames}
+          query={search_query}
+          pendingSkill={pendingSkill}
+          onToggle={(skillName, enabled) => void handleToggleAgentSkill(activeAgent, skillName, enabled)}
+        />
+      ) : (
+        customPane
+      )}
     </div>
   );
 

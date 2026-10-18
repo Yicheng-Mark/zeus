@@ -3286,10 +3286,13 @@ mod tests {
 
     /// The personal-stack corpus (vendored by
     /// AionCore/scripts/vendor-personal-stack.py from the author's agent
-    /// backup) feeds DEV_MODE_SKILLS in aionui-assistant. Pin its shape the
-    /// same way knowledge_work_corpus_shape_is_pinned pins the KWP set: every
-    /// entry a flat top-level dir whose frontmatter name equals its directory
-    /// name. Keep this list in sync with PERSONAL_STACK_SKILLS in
+    /// backup) ships in the corpus under its own allowlist in
+    /// PERSONAL_STACK_SKILLS (aionui-assistant) — which since the 2026-10-14
+    /// preset reset describes the corpus only, the mode presets themselves
+    /// being empty. Pin its shape the same way
+    /// knowledge_work_corpus_shape_is_pinned pins the KWP set: every entry a
+    /// flat top-level dir whose frontmatter name equals its directory name.
+    /// Keep this list in sync with PERSONAL_STACK_SKILLS in
     /// aionui-assistant's zeus_mode_presets.rs.
     #[test]
     fn personal_stack_corpus_shape_is_pinned() {

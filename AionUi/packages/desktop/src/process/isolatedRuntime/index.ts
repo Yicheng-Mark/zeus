@@ -32,6 +32,17 @@ export type IsolatedBootstrapReport = {
   error?: string;
 };
 
+/** Does the office (opencode) engine run on a user-configured model (vs the
+ *  built-in free models whose backend rejects every subagent request)?
+ *  Derived from the provider sync's own result: injected providers > 0. A
+ *  failed sync reports "true" so a transient backend error never strips the
+ *  sub-agent definitions off a configured engine — the backend-side mode
+ *  rule carries the authoritative free-tier behavior anyway. */
+const opencodeHasUserModel = (sync?: ModelProviderSyncReport): boolean => {
+  if (!sync || sync.opencode.error) return true;
+  return sync.opencode.providers > 0;
+};
+
 export type IsolatedRuntimeStatus = {
   paths: ReturnType<typeof getIsolatedRuntimePaths>;
   lastReport: IsolatedBootstrapReport | null;
@@ -50,7 +61,9 @@ async function runBootstrap(backendPort: number): Promise<IsolatedBootstrapRepor
   if (runtime.claude.present && runtime.opencode.present) {
     report.overrides = await applyIsolatedAgentOverrides(backendPort, paths);
     report.modelProviders = await syncAgentModelRuntimes(backendPort, paths);
-    report.agentDefs = await syncSubAgentDefinitions(paths).catch((err): AgentDefsSyncReport | undefined => {
+    report.agentDefs = await syncSubAgentDefinitions(paths, {
+      opencodeHasUserModel: opencodeHasUserModel(report.modelProviders),
+    }).catch((err): AgentDefsSyncReport | undefined => {
       console.error('[IsolatedRuntime] sub-agent definition sync failed:', err);
       return undefined;
     });
@@ -97,9 +110,18 @@ export async function installPluginsNow(): Promise<PluginInstallReport> {
 }
 
 /** Re-push agent-scoped model providers into the isolated CLI runtime configs.
- *  Called from the settings UI after a provider was created/updated/deleted. */
+ *  Called from the settings UI after a provider was created/updated/deleted —
+ *  and refreshes the opencode sub-agent definitions too, so adding (or
+ *  removing) the first office-engine model flips the free-tier gate without
+ *  an app restart. */
 export async function syncAgentModelRuntimesNow(port: number): Promise<ModelProviderSyncReport> {
-  return syncAgentModelRuntimes(port, getIsolatedRuntimePaths());
+  const report = await syncAgentModelRuntimes(port, getIsolatedRuntimePaths());
+  await syncSubAgentDefinitions(getIsolatedRuntimePaths(), {
+    opencodeHasUserModel: opencodeHasUserModel(report),
+  }).catch((err) => {
+    console.error('[IsolatedRuntime] sub-agent definition sync failed:', err);
+  });
+  return report;
 }
 
 export { getIsolatedRuntimePaths };

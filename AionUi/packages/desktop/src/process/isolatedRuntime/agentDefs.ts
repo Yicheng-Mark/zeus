@@ -3,7 +3,7 @@
  * Copyright 2025 AionUi (aionui.com)
  * SPDX-License-Identifier: Apache-2.0
  *
- * Ship generic sub-agent definitions into BOTH isolated CLI runtimes so the
+ * Ship generic sub-agent definitions into the isolated CLI runtimes so the
  * 办公/开发 engines can act on the orchestration guidance from their mode rule
  * (assistant-rules) and the multi-agent-orchestration skill:
  *
@@ -12,6 +12,28 @@
  *  - OpenCode reads them from `$OPENCODE_CONFIG_DIR/agents/<name>.md`
  *    (frontmatter: description [required] / mode: subagent / permission),
  *    invoked through its Task tool.
+ *
+ * The office (opencode) engine only gets these while a user-configured model
+ * serves it (`opencodeHasUserModel`): on the built-in free models the backend
+ * behind them rejects every subagent request, so the mode rule switches to the
+ * no-subagent discipline AND the `zeus-*` entries are removed from the
+ * opencode agents dir (an empty set makes `writeAgentDir` clean them up).
+ * Claude Code always gets the full set.
+ *
+ * Three of the four entries police a sub-task INSIDE the current mode
+ * (explore / plan / critic). The fourth, `zeus-delegate`, is the cross-mode
+ * handoff: it creates a new conversation for another mode's assistant through
+ * the backend's agent-facing helper CLI. Its invocation is not invented here —
+ * it is the contract verified from the backend source:
+ *
+ *  - subcommand: `aioncore conversation create` (AionCore/crates/aionui-app/src/cli.rs
+ *    — `Command::Conversation` / `ConversationCommand::Create`);
+ *  - payload: a JSON object on stdin, only `name` required, optional `workspace`
+ *    (absolute existing dir) and `assistant_id` (AionCore/crates/aionui-app/src/commands/cmd_conversation.rs,
+ *    schema in AionCore/crates/aionui-api-types/src/conversation_tools.rs);
+ *  - `$AIONUI_HELPER_BIN` reaches both engines' process env — claude via
+ *    `SessionConfig.spawn_env` (aionui-ai-agent session_agent.rs), opencode via
+ *    `apply_acp_launch_policy` (aionui-ai-agent factory/acp_launch_policy.rs).
  *
  * The files are app-managed: each boot rewrites exactly the `zeus-*` entries
  * and leaves anything else in those directories untouched.
@@ -79,6 +101,48 @@ const SUB_AGENT_DEFS: SubAgentDef[] = [
     claudeTools: 'Read, Grep, Glob, Bash',
     opencodePermission: { edit: 'deny', bash: 'allow', webfetch: 'deny' },
   },
+  {
+    name: 'zeus-delegate',
+    description:
+      '跨模式派单：把一件边界清晰、确实属于另一个模式（办公/开发/设计）的任务交出去，作为新会话创建，只回传一张短回执。不代用户或其他助手执行任何破坏性操作。',
+    body: [
+      '你是派单子 agent，为主 agent 服务：把一件边界清晰的任务交给另一个模式的助手，作为新会话创建。',
+      '',
+      '## 不要用于',
+      '1. 这件活属于当前模式的范围——自己或本模式的子 agent 做，不要派单。',
+      '2. 用户是在本会话里提出的要求——就地做完，不要转手（除非用户明确说要交给另一个模式）。',
+      '3. 任务边界还说不清（要探索、要拆解、要边做边定）——先把边界定下来，再派。',
+      '',
+      '## 纪律',
+      '1. 只建会话，不动手：不修改任何文件；不替另一个助手做破坏性操作（删除、覆盖、force push、改配置一律不代劳）。',
+      '2. 固定写法——参数以 JSON 走 stdin（没有位置参数）：',
+      '',
+      '   "$AIONUI_HELPER_BIN" conversation create <<\'JSON\'',
+      '   {',
+      '     "name": "任务短名",',
+      '     "assistant_id": "目标助手的 id"',
+      '   }',
+      '   JSON',
+      '',
+      '   `name` 必填（短名，用用户的语言）；`workspace` 省略即沿用当前会话的目录，要换目录时传已存在的绝对路径；`assistant_id` 省略即复用当前助手，要派给另一个模式时先用 `"$AIONUI_HELPER_BIN" config assistants list` 查出目标模式（办公/开发/设计）的 id。',
+      '3. 拿到 `data.id` 后把任务投过去（同样 stdin JSON）：',
+      '',
+      '   "$AIONUI_HELPER_BIN" session send-message <<\'JSON\'',
+      '   {',
+      '     "to": "上一步返回的 data.id",',
+      '     "message": "任务正文：这是用户的委托、目标与边界、期望产出、已知结论与文件路径"',
+      '   }',
+      '   JSON',
+      '',
+      '   对方看不到你这边上下文，只收到这一条消息，会因此自己开一轮。正文里写清产出放哪。',
+      '4. 绝不传递、内联、回显或设置任何 AIONUI_... 环境变量；payload 走 stdin heredoc，不要写 JSON 文件到磁盘。',
+      '5. 一次交接只投一条：不追问、不等回复、不重复投递、不代对方执行。收到 `rate_limited` 立刻停手并如实报告（短时间交接太密），不要重试；被拒时照抄错误原文。',
+      '6. 回执 ≤5 行：交给了哪个模式、新会话名 + data.id、投递状态（`delivered` / `queued` / 错误原文）、用户下一步在哪看结果。',
+      '7. 失败时照抄 stdout/stderr 的错误摘要，不要声称已派单成功。',
+    ].join('\n'),
+    claudeTools: 'Bash',
+    opencodePermission: { edit: 'deny', bash: 'allow', webfetch: 'deny' },
+  },
 ];
 
 function claudeAgentMd(def: SubAgentDef): string {
@@ -117,12 +181,28 @@ export type AgentDefsSyncReport = {
   agents: string[];
 };
 
-export async function syncSubAgentDefinitions(paths: IsolatedRuntimePaths): Promise<AgentDefsSyncReport> {
+/** Whether a user-configured model serves the office (opencode) engine —
+ *  computed by the model-provider sync from the same provider rows it
+ *  injects as `zeus-*` config entries. On the free models the backend
+ *  rejects every subagent request, so the opencode agents dir must hold no
+ *  `zeus-*` entries (an empty set also removes stale ones). */
+export type SubAgentDefsOptions = {
+  opencodeHasUserModel: boolean;
+};
+
+export async function syncSubAgentDefinitions(
+  paths: IsolatedRuntimePaths,
+  opts: SubAgentDefsOptions
+): Promise<AgentDefsSyncReport> {
   const claudeDir = join(paths.claudeConfigDir, 'agents');
   const opencodeDir = join(paths.opencodeConfigDir, 'agents');
+  const claudeFiles = SUB_AGENT_DEFS.map((def) => ({ name: def.name, content: claudeAgentMd(def) }));
+  const opencodeFiles = opts.opencodeHasUserModel
+    ? SUB_AGENT_DEFS.map((def) => ({ name: def.name, content: opencodeAgentMd(def) }))
+    : [];
   const [claudeAgents, opencodeAgents] = await Promise.all([
-    writeAgentDir(claudeDir, SUB_AGENT_DEFS.map((def) => ({ name: def.name, content: claudeAgentMd(def) }))),
-    writeAgentDir(opencodeDir, SUB_AGENT_DEFS.map((def) => ({ name: def.name, content: opencodeAgentMd(def) }))),
+    writeAgentDir(claudeDir, claudeFiles),
+    writeAgentDir(opencodeDir, opencodeFiles),
   ]);
   return { claudeDir, opencodeDir, agents: claudeAgents.length === opencodeAgents.length ? claudeAgents : [...claudeAgents, ...opencodeAgents] };
 }

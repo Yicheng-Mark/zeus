@@ -31,8 +31,16 @@ import { claudeEnv } from './agentOverrides';
 /** docx/xlsx/pptx/pdf authoring from anthropics/skills (source-available). */
 export const DOCUMENT_SKILLS_PLUGIN = 'document-skills@anthropic-agent-skills';
 
-/** The four document skills mirrored into the isolated OpenCode skills dir. */
-export const DOCUMENT_SKILL_NAMES = ['docx', 'xlsx', 'pptx', 'pdf'] as const;
+/**
+ * The document skills mirrored into the isolated OpenCode skills dir.
+ *
+ * `pdf` is deliberately absent: the backend's own corpus already ships a skill
+ * by that exact name (the office mode's only PDF-authoring skill, preset via
+ * `builtin-skills/pdf/`), so mirroring the plugin copy too would leave two
+ * skills called `pdf` visible in one OpenCode session — one reachable through
+ * the skills index, one sitting in the engine's own skills dir.
+ */
+export const DOCUMENT_SKILL_NAMES = ['docx', 'xlsx', 'pptx'] as const;
 
 const MARKETPLACES = ['anthropics/skills'];
 

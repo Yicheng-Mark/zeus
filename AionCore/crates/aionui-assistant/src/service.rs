@@ -139,6 +139,10 @@ pub struct AssistantServiceDeps {
 
 struct GeneratedAssistantReconcileContext<'a> {
     definitions: &'a [AssistantDefinitionRow],
+    /// Whether an agent-scoped user model serves the office (opencode) engine
+    /// — picks between the two live office rule bodies. See
+    /// `zeus_mode_presets::provider_enables_opencode_subagents`.
+    office_has_user_model: bool,
     has_existing_generated: bool,
     existing_min_sort_order: i32,
     missing_generated_count: usize,
@@ -560,6 +564,18 @@ impl AssistantService {
             .filter(|row| !generated_source_refs.contains(&row.id))
             .count();
 
+        // The office rule body depends on the provider lineup (free tier vs
+        // user model); one provider listing per reconcile pass is enough.
+        let office_has_user_model = match self.provider_repo.list(user_id).await {
+            Ok(providers) => providers
+                .iter()
+                .any(crate::zeus_mode_presets::provider_enables_opencode_subagents),
+            Err(error) => {
+                warn!(%error, "provider listing failed; office rule falls back to the free-tier body");
+                false
+            }
+        };
+
         let mut missing_index = 0usize;
         for row in generated_rows {
             if let Err(error) = self
@@ -568,6 +584,7 @@ impl AssistantService {
                     row,
                     GeneratedAssistantReconcileContext {
                         definitions: &definitions,
+                        office_has_user_model,
                         has_existing_generated,
                         existing_min_sort_order,
                         missing_generated_count,
@@ -638,10 +655,12 @@ impl AssistantService {
             }
             if should_seed_mcp_preset {
                 definition.default_mcps_mode = "fixed".into();
-                definition.default_mcp_ids =
-                    serde_json::to_string(mcp_preset).unwrap_or_else(|_| "[]".into());
+                definition.default_mcp_ids = serde_json::to_string(mcp_preset).unwrap_or_else(|_| "[]".into());
             }
-            (definition, identity_changed || should_upgrade_skill_defaults || should_seed_mcp_preset)
+            (
+                definition,
+                identity_changed || should_upgrade_skill_defaults || should_seed_mcp_preset,
+            )
         } else {
             (
                 AssistantDefinitionRow {
@@ -678,12 +697,10 @@ impl AssistantService {
                     // afterwards (the reconcile path never overwrites an
                     // existing list). Migration 046 covers databases whose
                     // three rows were created before this preset existed.
-                    default_skill_ids: serde_json::to_string(
-                        crate::zeus_mode_presets::mode_preset_skill_names(
-                            row.backend.as_deref(),
-                            row.agent_type,
-                        ),
-                    )
+                    default_skill_ids: serde_json::to_string(crate::zeus_mode_presets::mode_preset_skill_names(
+                        row.backend.as_deref(),
+                        row.agent_type,
+                    ))
                     .unwrap_or_else(|_| "[]".into()),
                     custom_skill_names: "[]".into(),
                     default_disabled_builtin_skill_ids: "[]".into(),
@@ -691,7 +708,11 @@ impl AssistantService {
                     // fixed MCP list, stored as NAMES resolved against live
                     // rows at conversation-create time. Custom agents (empty
                     // preset) keep the historical `auto` + empty binding.
-                    default_mcps_mode: if mcp_preset.is_empty() { "auto".into() } else { "fixed".into() },
+                    default_mcps_mode: if mcp_preset.is_empty() {
+                        "auto".into()
+                    } else {
+                        "fixed".into()
+                    },
                     default_mcp_ids: if mcp_preset.is_empty() {
                         "[]".into()
                     } else {
@@ -712,14 +733,33 @@ impl AssistantService {
                 .map_err(|e| AssistantError::Internal(format!("upsert generated assistant definition: {e}")))?;
         }
 
-        // Zeus fork: seed the mode's orchestration rule once. Reconcile never
-        // overwrites an existing rule file — a user's edits (or a deliberately
-        // emptied file) always win.
-        if let Some(rule) = crate::zeus_mode_presets::mode_preset_rule(row.backend.as_deref(), row.agent_type)
-            && self.read_user_rule_with_fallback(user_id, &assistant_id, None).is_empty()
-            && let Err(error) = self.write_rule_for_user(user_id, &assistant_id, None, rule).await
-        {
-            warn!(agent_id = %row.id, %error, "skip seeding mode rule for generated assistant");
+        // Zeus fork: seed the mode's orchestration rule, and upgrade it in place
+        // when the file still carries the text an earlier build shipped. A rule
+        // file the user edited always wins — only untouched shipped text is
+        // rewritten, so the mode rules can gain new sections (cross-engine
+        // handoff, orchestration discipline) without shipping a migration, and
+        // the office rule can follow the provider lineup between its two live
+        // bodies. See SUPERSEDED_MODE_RULES and rule_is_rewritable_shipped_text.
+        if let Some(rule) = crate::zeus_mode_presets::mode_preset_rule(
+            row.backend.as_deref(),
+            row.agent_type,
+            context.office_has_user_model,
+        ) {
+            let current = self.read_user_rule_with_fallback(user_id, &assistant_id, None);
+            let already_current = current.replace("\r\n", "\n").trim() == rule.trim();
+            let rewritable = crate::zeus_mode_presets::rule_is_rewritable_shipped_text(&current);
+            if !already_current
+                && rewritable
+                && let Err(error) = self.write_rule_for_user(user_id, &assistant_id, None, rule).await
+            {
+                warn!(agent_id = %row.id, %error, "skip seeding mode rule for generated assistant");
+            }
+            // A per-locale copy shadows the locale-less file for sessions in that
+            // locale (`read_user_rule_with_fallback`), and seeding only ever
+            // writes the locale-less one — so an install whose rule was once
+            // written per-locale would keep reading the stale body. Upgrade those
+            // copies under the same exact-match guard.
+            self.upgrade_superseded_locale_rules(user_id, &assistant_id, rule);
         }
 
         if !is_missing {
@@ -2151,6 +2191,40 @@ impl AssistantService {
 
     fn user_rules_root_dir(&self) -> PathBuf {
         self.user_data_dir.join("assistant-rules")
+    }
+
+    /// Rewrite `<id>.<locale>.md` rule files that still carry an older shipped
+    /// body verbatim, leaving everything else in place.
+    ///
+    /// Matching is content-based ([`crate::zeus_mode_presets::rule_is_rewritable_shipped_text`]),
+    /// so a localized rule the user wrote can never be overwritten by accident —
+    /// it does not equal any body this fork shipped. Best-effort: a directory
+    /// that cannot be read, or a file that cannot be written, is skipped.
+    fn upgrade_superseded_locale_rules(&self, user_id: &str, assistant_id: &str, rule: &str) {
+        let dir = self.user_rules_dir_for_user(user_id);
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            return;
+        };
+        let prefix = format!("{}.", encode_filename_component(assistant_id));
+        for entry in entries.flatten() {
+            let file_name = entry.file_name();
+            let Some(file_name) = file_name.to_str() else {
+                continue;
+            };
+            if !file_name.starts_with(&prefix) || !file_name.ends_with(".md") {
+                continue;
+            }
+            let path = entry.path();
+            let content = read_file_or_empty(&path);
+            if content.replace("\r\n", "\n").trim() == rule.trim()
+                || !crate::zeus_mode_presets::rule_is_rewritable_shipped_text(&content)
+            {
+                continue;
+            }
+            if let Err(error) = std::fs::write(&path, rule) {
+                warn!(path = %path.display(), %error, "skip superseded locale rule upgrade");
+            }
+        }
     }
 
     fn user_rules_dir_for_user(&self, user_id: &str) -> PathBuf {
@@ -3807,6 +3881,33 @@ mod tests {
         seed_provider_for_user(repo, DEFAULT_USER_ID, platform).await;
     }
 
+    /// A provider the office (opencode) engine can actually load — the same
+    /// shape `syncOpenCode` on the Electron side injects as a `zeus-*` entry.
+    async fn seed_opencode_provider(repo: &dyn IProviderRepository) {
+        repo.create(CreateProviderParams {
+            id: None,
+            user_id: DEFAULT_USER_ID,
+            platform: "custom",
+            name: "Office Provider",
+            base_url: "https://example.invalid/v1",
+            anthropic_base_url: None,
+            api_key_encrypted: "stub",
+            models: r#"["gpt-test"]"#,
+            enabled: true,
+            capabilities: "[]",
+            context_limit: None,
+            model_protocols: None,
+            model_enabled: None,
+            model_health: None,
+            model_settings: "{}",
+            bedrock_config: None,
+            is_full_url: false,
+            agent_scopes: Some(r#"["opencode"]"#),
+        })
+        .await
+        .expect("seed opencode provider");
+    }
+
     async fn seed_provider_for_user(repo: &dyn IProviderRepository, user_id: &str, platform: &str) {
         repo.create(CreateProviderParams {
             id: None,
@@ -4363,7 +4464,10 @@ mod tests {
         assert_eq!(detail.defaults.mcps.mode, "fixed");
         assert_eq!(
             detail.defaults.mcps.value,
-            crate::zeus_mode_presets::DEV_MODE_MCPS.iter().map(|s| s.to_string()).collect::<Vec<_>>()
+            crate::zeus_mode_presets::DEV_MODE_MCPS
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
         );
 
         // A user-tuned list is never overwritten: fixing a custom id list and
@@ -4414,18 +4518,21 @@ mod tests {
 
         let detail = fx.service.get_detail("bare:agent-claude", Some("en-US")).await.unwrap();
         assert_eq!(detail.defaults.skills.mode, "fixed");
-        // Zeus fork: a generated assistant for a shipped engine is seeded with
-        // that mode's knowledge-work skill preset instead of an empty list.
-        assert_eq!(
-            detail.defaults.skills.value,
-            crate::zeus_mode_presets::DEV_MODE_SKILLS.iter().map(|s| s.to_string()).collect::<Vec<_>>()
-        );
+        // Zeus fork: since the 2026-10-14 reset the generated assistant is
+        // born with an EMPTY fixed list — the mode presets ship nothing until
+        // reconfigured (zeus_mode_presets.rs; migration 056 clears existing
+        // installs). The mechanism stays: the list is fixed-mode, so the
+        // conversation layer treats it as the assistant's explicit default.
+        assert!(detail.defaults.skills.value.is_empty());
         // Zeus fork: the mode's MCP preset ships as NAMES (row ids are
         // per-install); the conversation layer resolves them at create time.
         assert_eq!(detail.defaults.mcps.mode, "fixed");
         assert_eq!(
             detail.defaults.mcps.value,
-            crate::zeus_mode_presets::DEV_MODE_MCPS.iter().map(|s| s.to_string()).collect::<Vec<_>>()
+            crate::zeus_mode_presets::DEV_MODE_MCPS
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
         );
         assert!(detail.capabilities.default_disabled_builtin_skill_ids.is_empty());
     }
@@ -4450,10 +4557,168 @@ mod tests {
 
         // A user edit always wins: after rewriting the rule, a later
         // reconcile must keep the user's content untouched.
-        fx.service.write_rule("bare:agent-claude", None, "my custom rule").await.unwrap();
+        fx.service
+            .write_rule("bare:agent-claude", None, "my custom rule")
+            .await
+            .unwrap();
         let _ = fx.service.list().await.unwrap();
         let kept = fx.service.read_rule("bare:agent-claude", None).await.unwrap();
         assert_eq!(kept, "my custom rule");
+    }
+
+    #[tokio::test]
+    async fn bootstrap_upgrades_an_untouched_shipped_rule_but_not_an_edited_one() {
+        let fx = fixture_with_options(FixtureOpts {
+            agent_rows: vec![mk_agent_row(
+                "agent-claude",
+                "claude",
+                aionui_api_types::AgentManagementStatus::Online,
+            )],
+            ..Default::default()
+        })
+        .await;
+
+        // An install seeded by an earlier build carries the old body verbatim.
+        let superseded = crate::zeus_mode_presets::SUPERSEDED_MODE_RULES
+            .iter()
+            .find(|body| body.contains("# 多 Agent 工作方式（重要）") && body.contains("Claude Code 引擎"))
+            .expect("the dev rule an earlier build shipped is registered as superseded")
+            .to_string();
+        assert_ne!(superseded, crate::zeus_mode_presets::DEV_MODE_RULE);
+        fx.service
+            .write_rule("bare:agent-claude", None, &superseded)
+            .await
+            .unwrap();
+
+        let _ = fx.service.list().await.unwrap();
+        assert_eq!(
+            fx.service.read_rule("bare:agent-claude", None).await.unwrap(),
+            crate::zeus_mode_presets::DEV_MODE_RULE,
+            "an untouched copy of the shipped body is upgraded in place"
+        );
+
+        // One character of user intent is enough to freeze the file: a body that
+        // merely resembles the shipped text is not upgraded.
+        let near_miss = format!("{superseded}\n我的补充规则");
+        fx.service
+            .write_rule("bare:agent-claude", None, &near_miss)
+            .await
+            .unwrap();
+        let _ = fx.service.list().await.unwrap();
+        assert_eq!(
+            fx.service.read_rule("bare:agent-claude", None).await.unwrap(),
+            near_miss,
+            "an edited rule file is never overwritten, even by a rule upgrade"
+        );
+    }
+
+    #[tokio::test]
+    async fn bootstrap_upgrades_a_superseded_locale_rule_and_keeps_a_localized_one() {
+        let fx = fixture_with_options(FixtureOpts {
+            agent_rows: vec![mk_agent_row(
+                "agent-claude",
+                "claude",
+                aionui_api_types::AgentManagementStatus::Online,
+            )],
+            ..Default::default()
+        })
+        .await;
+
+        // A per-locale copy of an older shipped body shadows the locale-less file
+        // for that locale, so it has to be upgraded too — otherwise a zh-CN user
+        // keeps reading the old rule while the locale-less file looks current.
+        let superseded = crate::zeus_mode_presets::SUPERSEDED_MODE_RULES
+            .iter()
+            .find(|body| body.contains("你是「开发」助手。"))
+            .expect("the round-3 dev rule is registered as superseded")
+            .to_string();
+        fx.service
+            .write_rule("bare:agent-claude", Some("zh-CN"), &superseded)
+            .await
+            .unwrap();
+        // A localized rule the user actually wrote stays untouched.
+        fx.service
+            .write_rule("bare:agent-claude", Some("en-US"), "my own localized rule")
+            .await
+            .unwrap();
+
+        let _ = fx.service.list().await.unwrap();
+
+        assert_eq!(
+            fx.service.read_rule("bare:agent-claude", Some("zh-CN")).await.unwrap(),
+            crate::zeus_mode_presets::DEV_MODE_RULE,
+            "an untouched per-locale copy of a shipped body is upgraded in place"
+        );
+        assert_eq!(
+            fx.service.read_rule("bare:agent-claude", Some("en-US")).await.unwrap(),
+            "my own localized rule",
+            "a localized rule the user wrote is preserved"
+        );
+    }
+
+    #[tokio::test]
+    async fn office_rule_seeds_free_tier_body_without_a_user_model() {
+        // The default fixture seeds an "openai" provider, which the office
+        // engine cannot load (only custom/new-api entries get injected into
+        // its config) — so the office engine would boot on the built-in free
+        // models whose backend rejects every subagent request.
+        let fx = fixture_with_options(FixtureOpts {
+            agent_rows: vec![mk_agent_row(
+                "agent-opencode",
+                "opencode",
+                aionui_api_types::AgentManagementStatus::Online,
+            )],
+            ..Default::default()
+        })
+        .await;
+
+        let _ = fx.service.list().await.unwrap();
+        assert_eq!(
+            fx.service.read_rule("bare:agent-opencode", None).await.unwrap(),
+            crate::zeus_mode_presets::OFFICE_MODE_RULE_FREE,
+            "no opencode-usable provider means the free-tier body: no Task orchestration"
+        );
+    }
+
+    #[tokio::test]
+    async fn office_rule_follows_the_provider_lineup_between_both_bodies() {
+        let fx = fixture_with_options(FixtureOpts {
+            agent_rows: vec![mk_agent_row(
+                "agent-opencode",
+                "opencode",
+                aionui_api_types::AgentManagementStatus::Online,
+            )],
+            ..Default::default()
+        })
+        .await;
+
+        // Free tier first.
+        let _ = fx.service.list().await.unwrap();
+        assert_eq!(
+            fx.service.read_rule("bare:agent-opencode", None).await.unwrap(),
+            crate::zeus_mode_presets::OFFICE_MODE_RULE_FREE
+        );
+
+        // Adding a usable model swaps the untouched shipped body in place.
+        seed_opencode_provider(&*fx.provider_repo).await;
+        let _ = fx.service.list().await.unwrap();
+        assert_eq!(
+            fx.service.read_rule("bare:agent-opencode", None).await.unwrap(),
+            crate::zeus_mode_presets::OFFICE_MODE_RULE,
+            "an untouched free-tier body is swapped for the Task-orchestration body"
+        );
+
+        // A user edit freezes the file: the swap never overwrites it.
+        fx.service
+            .write_rule("bare:agent-opencode", None, "my office rule")
+            .await
+            .unwrap();
+        let _ = fx.service.list().await.unwrap();
+        assert_eq!(
+            fx.service.read_rule("bare:agent-opencode", None).await.unwrap(),
+            "my office rule",
+            "an edited office rule is never overwritten by the variant swap"
+        );
     }
 
     #[tokio::test]

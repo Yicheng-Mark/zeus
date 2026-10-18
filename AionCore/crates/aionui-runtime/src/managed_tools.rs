@@ -136,22 +136,34 @@ fn python_exe_for(tool: &BundledTool) -> Option<PathBuf> {
 /// use cases (preinstalled packages / read-only git operations), and npm /
 /// pip caches live under the user profile anyway.
 pub fn agent_path_prefixes() -> Vec<PathBuf> {
+    let node_bin = crate::node_runtime::probe_preferred_local_runtime()
+        .and_then(|node| node.node_path.parent().map(Path::to_path_buf));
+    path_prefixes_from(bundled_tools(), node_bin.as_deref())
+}
+
+/// Tool-directory half of [`agent_path_prefixes`], split out so it can be
+/// exercised without the process-wide bundled-tools cache and node probe.
+fn path_prefixes_from(tools: &[BundledTool], node_bin: Option<&Path>) -> Vec<PathBuf> {
     let mut prefixes = Vec::new();
 
-    if let Some(node) = crate::node_runtime::probe_preferred_local_runtime()
-        && let Some(bin_dir) = node.node_path.parent()
-    {
+    if let Some(bin_dir) = node_bin {
         prefixes.push(bin_dir.to_path_buf());
     }
-    if let Some(python) = bundled_tool(TOOL_PYTHON)
+    let tool_named = |name: &str| tools.iter().find(|tool| tool.name == name);
+    if let Some(python) = tool_named(TOOL_PYTHON)
         && let Some(exe) = python_exe_for(python)
         && let Some(bin_dir) = exe.parent()
     {
         prefixes.push(bin_dir.to_path_buf());
     }
-    if let Some(git) = bundled_tool(TOOL_GIT) {
-        let git_exe = if cfg!(windows) { "git.exe" } else { "git" };
-        if let Some(exe) = find_tool_executable(git, git_exe)
+    // git, officecli and any future flat-root tool share the same lookup: the
+    // contract's declared executable first, then the conventional slots.
+    for (tool_name, exe_name) in [
+        (TOOL_GIT, if cfg!(windows) { "git.exe" } else { "git" }),
+        (TOOL_OFFICECLI, if cfg!(windows) { "officecli.exe" } else { "officecli" }),
+    ] {
+        if let Some(tool) = tool_named(tool_name)
+            && let Some(exe) = find_tool_executable(tool, exe_name)
             && let Some(bin_dir) = exe.parent()
         {
             prefixes.push(bin_dir.to_path_buf());
@@ -267,5 +279,55 @@ mod tests {
             find_tool_executable(&tool, "python.exe"),
             Some(python_root.join("python.exe"))
         );
+    }
+
+    #[test]
+    fn path_prefixes_cover_every_agent_facing_tool() {
+        let temp = tempfile::tempdir().unwrap();
+        let node_bin = temp.path().join("node").join("node-v24.11.0-win-x64");
+        let python_root = temp.path().join("python").join("python-3.12.10-win-x64");
+        let git_root = temp.path().join("git").join("mingit-2.50.0-win-x64");
+        let officecli_root = temp.path().join("officecli").join("officecli-1.0.0");
+        write_exe(&python_root.join("python.exe"));
+        write_exe(&git_root.join("cmd").join("git.exe"));
+        // OfficeCLI ships at the tool root with no bin/cmd slot — the layout a
+        // declared-executable-only lookup has to catch.
+        write_exe(&officecli_root.join("officecli.exe"));
+
+        let tools = vec![
+            BundledTool {
+                name: TOOL_PYTHON.into(),
+                version: "3.12.10".into(),
+                root: python_root.clone(),
+                executables: vec![python_root.join("python.exe")],
+            },
+            BundledTool {
+                name: TOOL_GIT.into(),
+                version: "2.50.0".into(),
+                root: git_root.clone(),
+                executables: vec![],
+            },
+            BundledTool {
+                name: TOOL_OFFICECLI.into(),
+                version: "1.0.0".into(),
+                root: officecli_root.clone(),
+                executables: vec![officecli_root.join("officecli.exe")],
+            },
+        ];
+
+        // node first (engines resolve it ahead of host installs), then the
+        // tools in contract order; the office-mode document skills need the
+        // officecli directory present here or they fall back to installing it.
+        assert_eq!(
+            path_prefixes_from(&tools, Some(&node_bin)),
+            vec![
+                node_bin,
+                python_root.clone(),
+                git_root.join("cmd"),
+                officecli_root,
+            ]
+        );
+        // A bundle without a tool simply contributes no entry.
+        assert_eq!(path_prefixes_from(&tools[..1], None), vec![python_root]);
     }
 }
